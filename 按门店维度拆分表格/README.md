@@ -59,7 +59,8 @@ pyinstaller 按门店拆分表格.spec
 
 | 文件 | 说明 |
 |------|------|
-| `Tabellen_teilen.py` | 主程序（界面 + 拆分逻辑 + 可选 CLI） |
+| `Tabellen_teilen.py` | 程序入口：Qt 界面、后台线程调度、可选 `--cli` 命令行 |
+| `excel_store_split.py` | 纯逻辑：读表头、猜店铺列、按列分组写多个 xlsx（无界面） |
 | `requirements.txt` | Python 依赖列表 |
 | `build_exe.bat` | 一键调用 PyInstaller 打包 |
 | `按门店拆分表格.spec` | PyInstaller 规格文件，便于复现打包参数 |
