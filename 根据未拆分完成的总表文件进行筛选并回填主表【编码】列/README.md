@@ -17,28 +17,41 @@
   - GUI 模式（Qt 选择文件并执行）
 - 已支持执行成功提示弹窗与常见路径/写入异常提示
 
-## 文件说明
+## 环境要求
 
-- `Filter_add.py`：主逻辑模块（读取、校验、匹配、回填、写回）
-- `run.py`：应用入口（`--mode cli` / `--mode gui`）
-- `test.py`：测试草稿，仅用于本地验证，不作为正式入口
+- Windows 10/11（亦可在其他系统运行源码，打包脚本以 Windows 为主）。
+- Python 3.10+（若从源码运行）。
 
-## 依赖
+## 安装依赖（源码运行 / 打包前）
 
-- Python 3.10+
-- `pandas`
-- `openpyxl`
-- `PySide6`（仅 GUI 模式需要）
-
-安装示例：
+在**本目录**打开终端，执行：
 
 ```bash
-pip install pandas openpyxl pyside6
+pip install -r requirements.txt
 ```
+
+主要依赖：`pandas`、`openpyxl`、`PySide6`；打包 exe 还需 `pyinstaller`（已写在 `requirements.txt` 中）。
+
+## 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `Filter_add.py` | 主逻辑模块（读取、校验、匹配、回填、写回） |
+| `run.py` | 应用入口（`--mode cli` / `--mode gui`） |
+| `requirements.txt` | Python 依赖列表 |
+| `run_gui.bat` | 源码运行 GUI：先安装依赖再启动（适合新环境双击） |
+| `build_exe.bat` | 一键调用 PyInstaller 打包 |
+| `匹配回填工具.spec` | PyInstaller 规格文件，便于复现打包参数 |
+| `test.py` | 测试草稿，仅用于本地验证，不作为正式入口 |
+| `README.md` | 本说明 |
 
 ## 使用方式
 
 ### 1) GUI 模式（默认）
+
+**方式 A（推荐，新环境）：** 双击 **`run_gui.bat`**（会自动按 `requirements.txt` 安装依赖后启动界面）。
+
+**方式 B：** 已装好依赖时：
 
 ```bash
 python run.py --mode gui
@@ -74,13 +87,17 @@ python run.py --mode cli
   - 若主表仅存在 `编码(必填)`，自动兼容写入该列
 - 同一 `myp_order_id` 多个 `asin`：按出现顺序逗号拼接（`,`）
 
-## 打包 EXE（可选）
+## 打包为 exe（Windows）
+
+双击或在命令行运行本目录下的 **`build_exe.bat`**。完成后在 `dist` 目录可得到 **`匹配回填工具.exe`**（单文件、无控制台窗口）。
+
+也可使用已生成的 `匹配回填工具.spec`：
 
 ```bash
-pyinstaller --noconfirm --clean --onefile --windowed --name 匹配回填工具 run.py
+pyinstaller 匹配回填工具.spec
 ```
 
-产物位于 `dist/` 目录。
+说明：`dist/`、`build/` 体积较大，已通过仓库根目录 `.gitignore` 忽略，不要提交到 Git。
 
 ---
 
