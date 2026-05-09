@@ -48,14 +48,17 @@ def run_gui_mode():
             layout = QVBoxLayout(self)
 
             self.total_edit = QLineEdit("")
-            self.sub_edit = QLineEdit("")
+            self.sub_edit = QTextEdit("")
             self.total_edit.setPlaceholderText("请选择主表文件（Excel）")
-            self.sub_edit.setPlaceholderText("请选择副表文件（Excel）")
+            self.sub_edit.setPlaceholderText(
+                "可填写多个副表路径：每行一个；也可用分号分隔；或下方「选择文件」一次多选追加"
+            )
+            self.sub_edit.setMinimumHeight(80)
             self.log_output = QTextEdit()
             self.log_output.setReadOnly(True)
 
             layout.addLayout(self._create_file_row("主表路径", self.total_edit))
-            layout.addLayout(self._create_file_row("副表路径", self.sub_edit))
+            layout.addLayout(self._create_sub_multi_row())
 
             run_button = QPushButton("开始执行")
             run_button.clicked.connect(self._run_pipeline)
@@ -75,6 +78,20 @@ def run_gui_mode():
             row.addWidget(browse_button)
             return row
 
+        def _create_sub_multi_row(self):
+            # 参数: 无
+            # 返回: 副表多文件区域（标签 + 多选按钮 + 多行文本框）
+            col = QVBoxLayout()
+            head = QHBoxLayout()
+            head.addWidget(QLabel("副表路径（可多选，依次匹配）"))
+            browse_multi = QPushButton("选择文件")
+            browse_multi.clicked.connect(self._pick_sub_files_multi)
+            head.addWidget(browse_multi)
+            head.addStretch()
+            col.addLayout(head)
+            col.addWidget(self.sub_edit)
+            return col
+
         def _pick_file(self, line_edit):
             # 参数: line_edit=需要回写路径的输入框控件
             # 返回: 无返回值; 选择文件后更新输入框
@@ -87,40 +104,72 @@ def run_gui_mode():
             if file_path:
                 line_edit.setText(file_path)
 
+        def _pick_sub_files_multi(self):
+            # 参数: 无
+            # 返回: 无返回值; 多选副表路径并追加到文本框（去重）
+            paths, _ = QFileDialog.getOpenFileNames(
+                self,
+                "选择副表Excel（可多选）",
+                str(Path.home()),
+                "Excel Files (*.xlsx *.xls)",
+            )
+            if not paths:
+                return
+            existing = self.sub_edit.toPlainText().replace(";", "\n")
+            lines = [ln.strip() for ln in existing.splitlines() if ln.strip()]
+            seen = set(lines)
+            for p in paths:
+                if p not in seen:
+                    seen.add(p)
+                    lines.append(p)
+            self.sub_edit.setPlainText("\n".join(lines))
+
         def _run_pipeline(self):
             # 参数: 无
             # 返回: 无返回值; 读取输入路径并执行主流程
             total_path = self.total_edit.text().strip()
-            sub_path = self.sub_edit.text().strip()
-            if not total_path or not sub_path:
-                QMessageBox.warning(self, "提示", "请先选择主表和副表路径")
+            raw_sub = self.sub_edit.toPlainText().replace(";", "\n")
+            sub_paths = [ln.strip() for ln in raw_sub.splitlines() if ln.strip()]
+            if not total_path or not sub_paths:
+                QMessageBox.warning(self, "提示", "请先选择主表并填写至少一个副表路径")
                 return
 
             total_path_obj = Path(total_path)
-            sub_path_obj = Path(sub_path)
             if not total_path_obj.exists():
                 QMessageBox.warning(self, "路径错误", f"主表文件不存在:\n{total_path_obj}")
                 return
-            if not sub_path_obj.exists():
-                QMessageBox.warning(self, "路径错误", f"副表文件不存在:\n{sub_path_obj}")
-                return
+            sub_path_objs = []
+            for s in sub_paths:
+                p = Path(s)
+                if not p.exists():
+                    QMessageBox.warning(self, "路径错误", f"副表文件不存在:\n{p}")
+                    return
+                sub_path_objs.append(p)
 
             try:
                 result = run_pipeline(
                     total_path=total_path_obj,
-                    sub_path=sub_path_obj,
+                    sub_path=sub_path_objs,
                     print_summary=False,
                     save_result=True,
                     output_path=total_path_obj,
                 )
-                total = len(result["sub_result"])
-                success = int(result["sub_result"]["is_match"].sum())
-                failed = int((~result["sub_result"]["is_match"]).sum())
                 target_col_used = result["target_col_used"]
                 self.log_output.clear()
-                self.log_output.append(f"总匹配行数: {total}")
-                self.log_output.append(f"匹配成功: {success}")
-                self.log_output.append(f"匹配失败: {failed}")
+                self.log_output.append(f"副表数量: {len(sub_path_objs)}（按列表顺序依次匹配回填）")
+                self.log_output.append("")
+                for i, block in enumerate(result.get("per_sub_match_results", []), start=1):
+                    sr = block["sub_result"]
+                    self.log_output.append(f"--- 副表 {i}: {Path(block['sub_path']).name} ---")
+                    self.log_output.append(f"  行数: {len(sr)}")
+                    self.log_output.append(f"  匹配成功: {int(sr['is_match'].sum())}")
+                    self.log_output.append(f"  匹配失败: {int((~sr['is_match']).sum())}")
+                    self.log_output.append("")
+                sr_all = result["sub_result"]
+                self.log_output.append(
+                    f"副表合计 — 行数: {len(sr_all)}，匹配成功: {int(sr_all['is_match'].sum())}，"
+                    f"失败: {int((~sr_all['is_match']).sum())}"
+                )
                 self.log_output.append("")
                 self.log_output.append("主表回填预览（前10行）：")
                 self.log_output.append(

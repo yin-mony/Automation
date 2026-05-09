@@ -10,6 +10,40 @@ DEFAULT_TARGET_COL = "编码（必填）"
 ALT_TARGET_COL = "编码(必填)"
 
 
+def _dedupe_join_asins(values, sep=","):
+    # 同一匹配键下多条 asin 合并时：去重，保留首次出现顺序；跳过空值
+    ordered = []
+    for v in values:
+        if pd.isna(v):
+            continue
+        t = str(v).strip()
+        if not t or t.lower() == "nan":
+            continue
+        ordered.append(t)
+    unique = list(dict.fromkeys(ordered))
+    return sep.join(unique)
+
+
+def _merge_code_strings(existing, new_str, sep=","):
+    # 多副表依次回填时：保留已有片段顺序，仅追加新片段中尚未出现过的部分（与单表内去重规则一致）
+    if pd.isna(new_str):
+        return existing
+    new_s = str(new_str).strip()
+    if not new_s or new_s.lower() == "nan":
+        return existing
+
+    def split_codes(v):
+        if pd.isna(v):
+            return []
+        return [p.strip() for p in str(v).split(sep) if p.strip()]
+
+    old_parts = split_codes(existing)
+    new_parts = split_codes(new_s)
+    seen = set(old_parts)
+    merged = old_parts + [p for p in new_parts if p not in seen]
+    return sep.join(merged)
+
+
 def load_data(total_path, sub_path):
     # 参数: total_path=主表路径, sub_path=副表路径
     # 返回: (total_df, sub_df) 两个 DataFrame
@@ -67,7 +101,7 @@ def match_and_collect(
     asin_map = (
         match_df[match_df[asin_col].notna() & (match_df[asin_col] != "")]
         .groupby(find_col, dropna=False)[asin_col]
-        .apply(lambda s: ",".join(s.astype(str).tolist()))
+        .apply(_dedupe_join_asins)
         .to_dict()
     )
 
@@ -85,8 +119,10 @@ def fill_target_column(
     total_key,
     asin_map,
     target_col=DEFAULT_TARGET_COL,
+    merge_existing=False,
 ):
     # 参数: total_df=主表DataFrame, total_key=主表匹配键Series, asin_map=订单到asin映射, target_col=回填列
+    # 参数: merge_existing=False 时与原先一致（整列按 map 写入）；True 时在已有编码格上合并本轮 map，不重复追加
     # 返回: (回填后的主表 DataFrame, 实际写入列名)
     result_df = total_df.copy()
     if target_col in result_df.columns:
@@ -96,7 +132,23 @@ def fill_target_column(
     else:
         target_col_used = target_col
         result_df[target_col_used] = pd.NA
-    result_df[target_col_used] = total_key.map(asin_map)
+
+    mapped = total_key.map(asin_map)
+    if not merge_existing:
+        result_df[target_col_used] = mapped
+        return result_df, target_col_used
+
+    if target_col_used not in result_df.columns:
+        result_df[target_col_used] = pd.NA
+    for idx in result_df.index:
+        new_v = mapped.loc[idx]
+        if pd.isna(new_v) or (isinstance(new_v, str) and not str(new_v).strip()):
+            continue
+        old_v = result_df.at[idx, target_col_used]
+        if pd.isna(old_v) or (isinstance(old_v, str) and not str(old_v).strip()):
+            result_df.at[idx, target_col_used] = new_v
+        else:
+            result_df.at[idx, target_col_used] = _merge_code_strings(old_v, new_v)
     return result_df, target_col_used
 
 
@@ -134,6 +186,15 @@ def print_match_summary(
     print(total_df_filled[[total_col, target_col]].head(10))
 
 
+def _normalize_sub_paths(sub_path):
+    # 统一为 Path 列表：支持单个路径或路径列表/元组
+    if sub_path is None:
+        return []
+    if isinstance(sub_path, (list, tuple)):
+        return [Path(p) for p in sub_path if str(p).strip()]
+    return [Path(sub_path)]
+
+
 def run_pipeline(
     total_path,
     sub_path,
@@ -145,39 +206,98 @@ def run_pipeline(
     save_result=False,
     output_path=None,
 ):
-    # 参数: total_path/sub_path=文件路径, 列名参数=流程字段配置, print_summary=是否打印摘要
+    # 参数: total_path=主表路径; sub_path=单个副表路径，或多个副表路径组成的 list/tuple（按顺序依次匹配回填）
+    # 参数: 列名参数=流程字段配置, print_summary=是否打印摘要
     # 参数: save_result=是否写回文件, output_path=输出文件路径(None时覆盖主表文件)
     # 返回: dict, 包含匹配结果和回填后的 total_df_filled 与写入路径
-    total_df, sub_df = load_data(total_path=total_path, sub_path=sub_path)
-    validate_columns(total_df=total_df, sub_df=sub_df, total_col=total_col, find_col=find_col, asin_col=asin_col)
+    sub_paths = _normalize_sub_paths(sub_path)
+    if not sub_paths:
+        raise ValueError("至少需要一个副表文件路径。")
 
-    match_result = match_and_collect(
-        total_df=total_df,
-        sub_df=sub_df,
-        total_col=total_col,
-        find_col=find_col,
-        asin_col=asin_col,
-    )
+    for sp in sub_paths:
+        if not Path(sp).exists():
+            raise FileNotFoundError(f"副表文件不存在: {sp}")
 
-    total_df_filled, target_col_used = fill_target_column(
-        total_df=total_df,
-        total_key=match_result["total_key"],
-        asin_map=match_result["asin_map"],
-        target_col=target_col,
-    )
+    total_df = pd.read_excel(total_path)
+    total_df.columns = total_df.columns.str.strip()
 
-    result = {**match_result, "total_df_filled": total_df_filled, "target_col_used": target_col_used}
-    if print_summary:
-        print_match_summary(
-            sub_result=result["sub_result"],
-            match_df=result["match_df"],
-            stat_df=result["stat_df"],
-            total_df_filled=result["total_df_filled"],
+    total_work = total_df.copy()
+    per_sub_match_results = []
+    sub_result_frames = []
+    match_dfs = []
+    stat_dfs = []
+
+    for i, sp in enumerate(sub_paths):
+        sub_df = pd.read_excel(sp)
+        sub_df.columns = sub_df.columns.str.strip()
+        validate_columns(
+            total_df=total_work,
+            sub_df=sub_df,
+            total_col=total_col,
             find_col=find_col,
             asin_col=asin_col,
-            total_col=total_col,
-            target_col=target_col,
         )
+
+        match_result = match_and_collect(
+            total_df=total_work,
+            sub_df=sub_df,
+            total_col=total_col,
+            find_col=find_col,
+            asin_col=asin_col,
+        )
+
+        total_work, target_col_used = fill_target_column(
+            total_df=total_work,
+            total_key=match_result["total_key"],
+            asin_map=match_result["asin_map"],
+            target_col=target_col,
+            merge_existing=(i > 0),
+        )
+
+        entry = {
+            **match_result,
+            "sub_path": str(sp),
+            "total_df_filled_step": total_work.copy(),
+        }
+        per_sub_match_results.append(entry)
+
+        sr = match_result["sub_result"].copy()
+        sr["副表文件"] = Path(sp).name
+        sub_result_frames.append(sr)
+        match_dfs.append(match_result["match_df"])
+        stat_dfs.append(match_result["stat_df"])
+
+        if print_summary:
+            print(f"\n========== 副表 {i + 1}/{len(sub_paths)}: {sp} ==========")
+            print_match_summary(
+                sub_result=match_result["sub_result"],
+                match_df=match_result["match_df"],
+                stat_df=match_result["stat_df"],
+                total_df_filled=total_work,
+                find_col=find_col,
+                asin_col=asin_col,
+                total_col=total_col,
+                target_col=target_col_used,
+            )
+
+    combined_sub_result = (
+        pd.concat(sub_result_frames, ignore_index=True) if len(sub_result_frames) > 1 else sub_result_frames[0]
+    )
+    combined_match_df = pd.concat(match_dfs, ignore_index=True) if len(match_dfs) > 1 else match_dfs[0]
+    combined_stat_df = pd.concat(stat_dfs, ignore_index=True) if len(stat_dfs) > 1 else stat_dfs[0]
+
+    last_mr = per_sub_match_results[-1]
+    result = {
+        "total_key": last_mr["total_key"],
+        "sub_result": combined_sub_result,
+        "match_df": combined_match_df,
+        "stat_df": combined_stat_df,
+        "asin_map": last_mr["asin_map"],
+        "total_df_filled": total_work,
+        "target_col_used": target_col_used,
+        "sub_paths": [str(p) for p in sub_paths],
+        "per_sub_match_results": per_sub_match_results,
+    }
 
     if save_result:
         save_path = Path(output_path) if output_path else Path(total_path)
@@ -195,23 +315,33 @@ def run_interactive():
     # 参数: 无
     # 返回: run_pipeline 的结果 dict
     total_input = input("请输入主表路径（必填）: ").strip()
-    sub_input = input("请输入副表路径（必填）: ").strip()
-    if not total_input or not sub_input:
-        raise ValueError("主表路径和副表路径都必须输入，不能留空。")
+    print("请输入副表路径（必填）。多个文件请逐行输入，输入空行结束：")
+    sub_lines = []
+    while True:
+        line = input().strip()
+        if not line:
+            break
+        sub_lines.append(line)
+    if not total_input or not sub_lines:
+        raise ValueError("主表路径和至少一个副表路径都必须输入，不能留空。")
 
     total_path = Path(total_input)
-    sub_path = Path(sub_input)
     if not total_path.exists():
         raise FileNotFoundError(f"主表文件不存在: {total_path}")
-    if not sub_path.exists():
-        raise FileNotFoundError(f"副表文件不存在: {sub_path}")
+
+    sub_paths = []
+    for line in sub_lines:
+        p = Path(line)
+        if not p.exists():
+            raise FileNotFoundError(f"副表文件不存在: {p}")
+        sub_paths.append(p)
 
     output_input = input("请输入输出主表路径（留空则覆盖原主表）: ").strip()
     output_path = Path(output_input) if output_input else None
 
     return run_pipeline(
         total_path=total_path,
-        sub_path=sub_path,
+        sub_path=sub_paths,
         save_result=True,
         output_path=output_path,
     )

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = ['excel_store_split']
+hiddenimports = []
 hiddenimports += collect_submodules('openpyxl')
 
 
