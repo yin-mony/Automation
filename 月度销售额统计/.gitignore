@@ -1,0 +1,15 @@
+# 本地配置（含账号密码，勿提交）
+monthly_sales_gui_config.txt
+
+# 下载与合并产生的数据
+flie/
+logs/
+*.xlsx
+*.zip
+
+# Python / 打包
+venv/
+__pycache__/
+*.py[cod]
+build/
+dist/

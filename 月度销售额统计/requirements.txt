@@ -1,0 +1,7 @@
+DrissionPage>=4.0
+psutil
+python-dateutil
+opencv-python
+pandas
+openpyxl
+pywinauto
