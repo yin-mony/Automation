@@ -74,6 +74,20 @@ class DewMainWorkflow:
         self.success_count = 0
         self.failed_count = 0
 
+    def _wait_online_pair_button(self, asin, timeout=12):
+        """
+        在线产品列表在筛选后有异步渲染延迟，避免 3 秒内误判“已配对”。
+        """
+        pair_xpath = f'x://tr[.//text()[contains(., "{asin}")]]//span[contains(text(), "配对")]'
+        end_time = time.time() + max(timeout, 1)
+        pair_btn = None
+        while time.time() < end_time and not pair_btn:
+            pair_btn = self.page.ele(pair_xpath, timeout=1)
+            if pair_btn:
+                break
+            time.sleep(0.5)
+        return pair_btn
+
     def _process_single_record(self, index, total_count, record):
         request_no = record["request_no"]
         new_prefix = record["new_prefix"]
@@ -149,9 +163,9 @@ class DewMainWorkflow:
         )
         time.sleep(1)
 
-        pair_btn = self.page.ele(f'x://tr[.//text()[contains(., "{new_asin}")]]//span[contains(text(), "配对")]', timeout=3)
+        pair_btn = self._wait_online_pair_button(new_asin, timeout=12)
         if not pair_btn:
-            print("该数据，已配对")
+            print(f"[{index}/{total_count}] 未检测到“配对”按钮（可能已配对或 ASIN 查询结果未加载完成），跳过。", flush=True)
             self.success_count += 1
             return
 

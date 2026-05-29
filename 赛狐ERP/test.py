@@ -3,8 +3,10 @@ import os
 import subprocess
 import sys
 import time
+
 try:
     import ddddocr
+
     _DDDDOCR_IMPORT_ERROR = ""
 except Exception as exc:
     ddddocr = None
@@ -70,43 +72,111 @@ class SaihuERPLogin:
                 f"未检测到登录输入框，当前页面: {self.page.url}，请确认是否有弹窗或页面结构变化。"
             )
 
-        username_input.input(self.username, clear=True)
-        password_input.input(self.password, clear=True)
+        # 用户名输入
+        username_input.clear()
+        for char in self.username:
+            username_input.input(char)
+            time.sleep(0.2)
+        time.sleep(0.5)
+
+        # 密码输入
+        password_input.clear()
+        for char in self.password:
+            password_input.input(char)
+            time.sleep(0.2)
+        time.sleep(0.5)
+
         self._ensure_auto_login_checked()
 
-        for index in range(7):
-            print(f"登录尝试第 {index + 1} 次...", flush=True)
+        # ====== 修改：持续自动识别验证码循环 ======
+        auto_attempts = 0
+        max_auto_attempts = 20  # 最多自动尝试20次
+
+        while auto_attempts < max_auto_attempts:
+            auto_attempts += 1
+            print(f"自动识别验证码尝试第 {auto_attempts} 次...", flush=True)
+
+            # 获取验证码图片
             captcha_img = self.page.ele('x://div[@class="login_vcode"]/a/img', timeout=5)
             if not captcha_img:
                 if self._is_logged_in():
                     print("检测到已进入系统，跳过验证码环节。", flush=True)
                     return True
-                raise RuntimeError(f"未找到验证码图片，当前页面: {self.page.url}")
+                # 如果找不到验证码图片，刷新页面重试
+                print("未找到验证码图片，刷新页面...", flush=True)
+                self.page.refresh()
+                time.sleep(2)
+                continue
 
+            # 获取验证码输入框
             captcha_input = self.page.ele('x://*[@placeholder="请输入图形验证码"]', timeout=5)
             if captcha_input:
                 captcha_input.click()
+
+            # 识别验证码
             captcha_code = self._solve_captcha_with_retry(captcha_img)
-            if captcha_code and captcha_input:
-                ok = self._fill_captcha_input_stable(captcha_input, captcha_code)
-                if ok:
-                    print(f"验证码自动识别并稳定填入: {captcha_code}", flush=True)
+            if not captcha_code:
+                print("验证码识别失败，刷新验证码重试...", flush=True)
+                captcha_img.click(by_js=True)
+                time.sleep(0.5)
+                continue
+
+            print(f"识别到验证码: {captcha_code}", flush=True)
+
+            # 填入验证码
+            if captcha_input and captcha_code:
+                fill_success = self._fill_captcha_ultimate(captcha_input, captcha_code)
+                if fill_success:
+                    print("验证码填入成功，准备点击登录...", flush=True)
                 else:
-                    print(
-                        f"验证码自动识别为 {captcha_code}，但自动填入校验未通过，切换手动验证码流程。",
-                        flush=True,
-                    )
-                    captcha_code = ""
+                    print("验证码填入失败，刷新验证码重试...", flush=True)
+                    captcha_img.click(by_js=True)
+                    time.sleep(0.5)
+                    continue
 
-            self._ensure_auto_login_checked()
-
-            if captcha_code:
-                self.page.ele('x://button/*[text()="登录"]').click()
-                if self._wait_for_login_success(timeout=6):
-                    print("赛狐 ERP 登录成功。", flush=True)
+            # 点击登录
+            time.sleep(1)  # 等待页面处理
+            if self._click_login_ultimate():
+                print("已点击登录按钮，等待登录结果...", flush=True)
+                # 等待登录成功
+                if self._wait_for_login_success(timeout=5):
+                    print("赛狐 ERP 登录成功！", flush=True)
                     return True
-                print("自动识别验证码登录未成功，切换手动验证码流程。", flush=True)
+                else:
+                    print("登录失败，可能是验证码错误，刷新验证码重试...", flush=True)
+                    # 刷新验证码
+                    captcha_img.click(by_js=True)
+                    time.sleep(0.5)
+            else:
+                print("点击登录按钮失败，刷新验证码重试...", flush=True)
+                captcha_img.click(by_js=True)
+                time.sleep(0.5)
 
+            # 如果连续多次失败，重新加载登录页
+            if auto_attempts % 5 == 0:
+                print("连续多次失败，重新加载登录页...", flush=True)
+                self.page.get(self.LOGIN_URL)
+                time.sleep(2)
+                # 重新输入用户名密码
+                username_input = self.page.ele('x://input[@id="username"]', timeout=6)
+                password_input = self.page.ele('x://input[@id="password"]', timeout=6)
+                if username_input and password_input:
+                    username_input.clear()
+                    for char in self.username:
+                        username_input.input(char)
+                        time.sleep(0.2)
+                    time.sleep(0.5)
+                    password_input.clear()
+                    for char in self.password:
+                        password_input.input(char)
+                        time.sleep(0.2)
+                    time.sleep(0.5)
+                    self._ensure_auto_login_checked()
+
+        # ====== 如果自动尝试全部失败，进入手动模式 ======
+        print(f"自动识别验证码尝试 {max_auto_attempts} 次均失败，切换手动输入...", flush=True)
+
+        while True:
             print(
                 f"请在页面手动输入验证码并点击“登录”，当前等待 {self.MANUAL_WAIT_TIMEOUT} 秒...",
                 flush=True,
@@ -114,12 +184,153 @@ class SaihuERPLogin:
             if self._wait_manual_login_result(timeout=self.MANUAL_WAIT_TIMEOUT):
                 print("赛狐 ERP 登录成功。", flush=True)
                 return True
-
-            print("本次等待超时或登录未成功，刷新验证码后重试。", flush=True)
-            captcha_img.click(by_js=True)
-            time.sleep(0.4)
+            print("手动输入超时，刷新验证码后继续...", flush=True)
+            captcha_img = self.page.ele('x://div[@class="login_vcode"]/a/img', timeout=3)
+            if captcha_img:
+                captcha_img.click(by_js=True)
+                time.sleep(0.5)
 
         raise RuntimeError("赛狐 ERP 登录失败：连续尝试后仍未进入系统。")
+
+    # ====== 终极版验证码填入 ======
+    def _fill_captcha_ultimate(self, captcha_input, captcha_code):
+        """
+        终极版验证码填入方法
+        """
+        target = str(captcha_code or "").strip()
+        if len(target) < 4:
+            return False
+        target = target[:4]
+
+        try:
+            # 1. 先清空
+            captcha_input.clear()
+            time.sleep(0.3)
+
+            # 2. 逐字符输入，间隔长一点
+            for char in target:
+                captcha_input.input(char)
+                time.sleep(0.5)
+            time.sleep(0.5)
+
+            # 3. JS强制写入
+            self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').value = "{target}";')
+            time.sleep(0.3)
+            self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').dispatchEvent(new Event("input", {{bubbles: true}}));')
+            time.sleep(0.3)
+            self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').dispatchEvent(new Event("change", {{bubbles: true}}));')
+
+            # 4. 验证是否填入成功
+            actual = self._get_captcha_input_value_enhanced()
+            if actual == target:
+                return True
+            else:
+                # 再试一次强制设置
+                self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').value = "{target}";')
+                self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').dispatchEvent(new Event("input", {{bubbles: true}}));')
+                self.page.run_js(f'document.querySelector(\'input[placeholder*="验证码"]\').dispatchEvent(new Event("change", {{bubbles: true}}));')
+                time.sleep(0.5)
+                actual = self._get_captcha_input_value_enhanced()
+                return actual == target
+
+        except Exception as e:
+            print(f"   终极版填入失败: {e}")
+            return False
+
+    # ====== 终极版登录按钮点击 ======
+    def _click_login_ultimate(self):
+        """
+        终极版登录按钮点击
+        """
+        print("  正在点击登录按钮...", flush=True)
+
+        # 方法1：直接点击按钮
+        try:
+            # 点击登录按钮前，先点击页面空白处，激活页面
+            self.page.run_js('document.body.click();')
+            time.sleep(0.3)
+
+            # 多种方式定位按钮
+            login_btn = self.page.ele('x://button[contains(., "登录")]', timeout=2)
+            if login_btn:
+                # 先模拟鼠标悬停
+                login_btn.hover()
+                time.sleep(0.3)
+                login_btn.click()
+                print("      ✅ 点击登录按钮成功", flush=True)
+                return True
+        except Exception:
+            pass
+
+        # 方法2：JS点击
+        try:
+            self.page.run_js('document.querySelector("button[type=\'submit\']")?.click();')
+            time.sleep(0.3)
+            self.page.run_js('document.querySelector("button.login-btn")?.click();')
+            time.sleep(0.3)
+            self.page.run_js('document.querySelector("button[class*=\'login\']")?.click();')
+            print("      ✅ JS点击登录按钮成功", flush=True)
+            return True
+        except Exception:
+            pass
+
+        # 方法3：通过坐标点击
+        try:
+            login_btn = self.page.ele('x://button[contains(., "登录")]', timeout=2)
+            if login_btn:
+                x, y = login_btn.rect.center
+                self.page.actions.move_to(x, y).click()
+                print("      ✅ 坐标点击登录按钮成功", flush=True)
+                return True
+        except Exception:
+            pass
+
+        # 方法4：模拟回车键（可能触发登录）
+        try:
+            password_input = self.page.ele('x://input[@id="password"]', timeout=2)
+            if password_input:
+                password_input.click()
+                time.sleep(0.3)
+                self.page.actions.type('\n')  # 按回车
+                print("      ✅ 模拟回车触发登录", flush=True)
+                return True
+        except Exception:
+            pass
+
+        print("      ❌ 终极版点击全部失败", flush=True)
+        return False
+
+    def _get_captcha_input_value_enhanced(self):
+        """
+        增强版获取输入框值
+        """
+        script = """
+return (function(){
+  try {
+    var selectors = [
+      'input[placeholder*="验证码"]',
+      'input[placeholder*="图形验证码"]',
+      'input[placeholder*="请输入验证码"]',
+      'input[type="text"][autocomplete*="off"]'
+    ];
+
+    var el = null;
+    for (var i = 0; i < selectors.length; i++) {
+      el = document.querySelector(selectors[i]);
+      if (el) break;
+    }
+
+    if (!el) return '';
+    return String(el.value || '').trim();
+  } catch(e) {
+    return '';
+  }
+})();
+"""
+        try:
+            return str(self.page.run_js(script) or "").strip()
+        except Exception:
+            return ""
 
     def _is_logged_in(self, timeout=None):
         check_timeout = self.LOGIN_CHECK_TIMEOUT if timeout is None else timeout
@@ -272,83 +483,6 @@ class SaihuERPLogin:
             return ""
         return code[:4]
 
-    def _fill_captcha_input_stable(self, captcha_input, captcha_code):
-        """
-        稳定输入验证码：
-        1) 先走常规输入；
-        2) 再走 JS 强制赋值并触发 input/change 事件；
-        3) 回读值做一致性校验，不一致则重试。
-        """
-        target = str(captcha_code or "").strip()
-        if len(target) < 4:
-            return False
-        target = target[:4]
-
-        for _ in range(3):
-            try:
-                captcha_input.click()
-            except Exception:
-                pass
-
-            # 通道1：常规输入
-            try:
-                captcha_input.input(target, clear=True)
-            except Exception:
-                pass
-
-            # 通道2：JS 强制写入（兼容部分前端控件忽略 send_keys 的情况）
-            if not self._set_captcha_by_js(target):
-                time.sleep(0.15)
-
-            actual = self._get_captcha_input_value()
-            if actual == target:
-                return True
-
-            time.sleep(0.2)
-        return False
-
-    def _set_captcha_by_js(self, value):
-        script = """
-return (function(v){
-  try {
-    var x = document.evaluate('//*[@placeholder="请输入图形验证码"]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-    var el = x && x.singleNodeValue;
-    if(!el){ return false; }
-    el.focus();
-    el.value = '';
-    el.dispatchEvent(new Event('input', {bubbles:true}));
-    el.value = String(v || '');
-    el.dispatchEvent(new Event('input', {bubbles:true}));
-    el.dispatchEvent(new Event('change', {bubbles:true}));
-    return true;
-  } catch(e) {
-    return false;
-  }
-})(arguments[0]);
-"""
-        try:
-            return bool(self.page.run_js(script, value))
-        except Exception:
-            return False
-
-    def _get_captcha_input_value(self):
-        script = """
-return (function(){
-  try {
-    var x = document.evaluate('//*[@placeholder="请输入图形验证码"]', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-    var el = x && x.singleNodeValue;
-    if(!el){ return ''; }
-    return String(el.value || '').trim();
-  } catch(e) {
-    return '';
-  }
-})();
-"""
-        try:
-            return str(self.page.run_js(script) or "").strip()
-        except Exception:
-            return ""
-
     def _get_ocr_engine(self):
         if self.__class__._ocr_checked:
             return self.__class__._ocr_engine
@@ -405,3 +539,21 @@ return (function(){
         except Exception:
             # 修复失败时保持静默，后续走手动验证码兜底。
             pass
+
+
+# ====== 测试代码 ======
+if __name__ == "__main__":
+    from DrissionPage import ChromiumPage
+
+    # 创建浏览器页面
+    page = ChromiumPage()
+
+    # 创建登录对象
+    login = SaihuERPLogin(page)
+
+    # 执行登录
+    try:
+        login.login(prefer_entry_check=True)
+        print("✅ 登录成功！")
+    except Exception as e:
+        print(f"❌ 登录失败: {e}")

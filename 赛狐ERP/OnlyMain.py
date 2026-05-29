@@ -2,18 +2,16 @@
 from pathlib import Path
 import os
 
-from DrissionPage import ChromiumOptions as EdgeOptions
-from DrissionPage import ChromiumPage as EdgePage
+from DrissionPage import ChromiumOptions
+from DrissionPage import ChromiumPage
+from SaihuERPLogin import SaihuERPLogin
 
 
 class SaiHuMain:
-    INITIAL_URL = "https://www.sellfox.com/amzup-web-main/web/dashboard.html"
-    LOGIN_URL = "https://www.sellfox.com/amzup-web-main/login.html"
-    PROFILE_DIR_NAME = "EdgeDebugProfile_SaiHuMain"
+    DEFAULT_CHROME_DEBUG_ADDR = "127.0.0.1:9222"
     _shared_page = None
 
     def __init__(self, username=None, password=None):
-        self.initial_url = self.INITIAL_URL
         self.username = username
         self.password = password
         self.page = None
@@ -28,60 +26,47 @@ class SaiHuMain:
         except Exception:
             return False
 
-    def _start_edge(self):
-        # 同一进程内优先复用已打开的 Edge 实例，避免每次执行都新开窗口。
+    def _connect_chrome_with_ap(self):
+        # 同一进程内优先复用已连接的 Chrome 页面对象。
         if self._is_page_alive(self.__class__._shared_page):
             self.page = self.__class__._shared_page
-            return self.page
+            return self.page, "shared-session"
 
-        edge_candidates = [
-            Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-            Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
-        ]
-        edge_path = next((p for p in edge_candidates if p.exists()), None)
-        if not edge_path:
-            raise FileNotFoundError("未找到本机 Edge 浏览器 msedge.exe")
-
-        user_data_dir = Path(os.environ.get("LOCALAPPDATA", "")) / self.PROFILE_DIR_NAME
-        user_data_dir.mkdir(parents=True, exist_ok=True)
-
-        options = EdgeOptions()
-        options.set_browser_path(str(edge_path))
-        options.auto_port()
-        options.set_argument(f"--user-data-dir={user_data_dir}")
-        options.set_argument("--new-window")
-        options.set_argument("--no-first-run")
-        options.set_argument("--no-default-browser-check")
-        options.set_argument("--disable-sync")
-
-        self.page = EdgePage(options)
+        # 与“审核请款单/test.py”保持一致：优先读取 EDGE_DEBUG_ADDR，并通过调试端口连接。
+        debug_addr = (
+            os.getenv("EDGE_DEBUG_ADDR", "").strip()
+            or os.getenv("CHROME_DEBUG_ADDR", "").strip()
+            or self.DEFAULT_CHROME_DEBUG_ADDR
+        )
+        options = ChromiumOptions().set_address(debug_addr)
+        try:
+            self.page = ChromiumPage(options)
+        except Exception as exc:
+            raise RuntimeError(
+                f"无法连接 Chrome 调试实例 {debug_addr}。"
+                "请先启动 Chrome 并开启远程调试端口，例如："
+                "chrome.exe --remote-debugging-port=9222"
+            ) from exc
+        self.page.set.window.max()
         self.__class__._shared_page = self.page
-        return self.page
-
-    def _can_enter_initial(self):
-        self.page.get(self.initial_url)
-        return bool(self.page.ele('x://span[text()="商品"]', timeout=1.2))
+        print(f"已连接 Chrome 调试实例: {debug_addr}", flush=True)
+        return self.page, debug_addr
 
     def login(self):
-        from SaihuERPLogin import SaihuERPLogin
+        page, debug_addr = self._connect_chrome_with_ap()
+        if debug_addr != "shared-session":
+            print(f"已连接 Chrome 实例: {debug_addr}", flush=True)
 
-        page = self._start_edge()
-        if self._can_enter_initial():
-            self.reused_session = True
-            print("检测到当前会话可直接进入 INITIAL_URL。", flush=True)
-            return page
-
-        self.reused_session = False
-        print("INITIAL_URL 无法直接进入，调用 SaihuERPLogin 执行稳定登录。", flush=True)
         login_client = SaihuERPLogin(
             page=page,
             username=self.username,
             password=self.password,
             img_dir=str(Path(__file__).resolve().parent),
         )
-        login_client.login()
-        page.get(self.initial_url)
+        # 按参考目录 test.py 保持一致：固定使用 prefer_entry_check=True。
+        login_client.login(prefer_entry_check=True)
+        print("赛狐页面登录流程完成，当前登录态已保持。", flush=True)
+        self.reused_session = False
         return page
 
     def run(self, mode, excel_file_path=None, sheet_name=None):

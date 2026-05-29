@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -20,11 +21,15 @@ from PyQt5.QtWidgets import (
 )
 
 from OnlyMain import SaiHuMain
+from SaihuERPLogin import SaihuERPLogin
 
 CURRENT_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = CURRENT_DIR / "onlyrun_config.json"
-DEFAULT_USERNAME = "zidonghua"
-DEFAULT_PASSWORD = "Aiworkds123."
+CONDA312_PYTHON = Path(r"C:\Users\admin\miniconda3\envs\saihu312\python.exe")
+CONDA312_QT_PLUGIN_DIR = Path(r"C:\Users\admin\miniconda3\envs\saihu312\Lib\site-packages\PyQt5\Qt5\plugins")
+CONDA312_QT_PLATFORM_DIR = CONDA312_QT_PLUGIN_DIR / "platforms"
+DEFAULT_USERNAME = SaihuERPLogin.DEFAULT_USERNAME
+DEFAULT_PASSWORD = SaihuERPLogin.DEFAULT_PASSWORD
 
 MODE_DEW = "dew"
 MODE_LOW = "low"
@@ -234,10 +239,56 @@ class OnlyRunnerWindow(QWidget):
 
 
 def main():
+    _ensure_conda312_runtime()
+    _ensure_qt_plugin_env()
     app = QApplication(sys.argv)
     window = OnlyRunnerWindow()
     window.show()
     sys.exit(app.exec_())
+
+
+def _ensure_conda312_runtime():
+    """
+    固定当前项目使用 conda 的 3.12 环境运行：
+    - 若当前解释器不是 saihu312 的 python.exe，则自动切换并重启本脚本；
+    - 若 conda 环境不存在，则保持当前解释器并输出提示。
+    """
+    # 打包后的 exe 运行时不可再切换解释器，否则会导致启动失败。
+    if getattr(sys, "frozen", False):
+        return
+
+    current_exe = Path(sys.executable).resolve()
+    target_exe = CONDA312_PYTHON.resolve()
+
+    if not target_exe.exists():
+        print(f"[warn] 未找到 conda 3.12 解释器: {target_exe}", flush=True)
+        return
+
+    if current_exe == target_exe:
+        return
+
+    print(f"检测到当前解释器: {current_exe}", flush=True)
+    print(f"自动切换到 conda 3.12 环境: {target_exe}", flush=True)
+    _set_qt_env_for_conda312()
+    os.execv(str(target_exe), [str(target_exe), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+
+def _set_qt_env_for_conda312():
+    if CONDA312_QT_PLATFORM_DIR.exists():
+        os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(CONDA312_QT_PLATFORM_DIR)
+    if CONDA312_QT_PLUGIN_DIR.exists():
+        os.environ["QT_PLUGIN_PATH"] = str(CONDA312_QT_PLUGIN_DIR)
+
+
+def _ensure_qt_plugin_env():
+    """
+    修复部分环境变量被置空导致的：
+    Could not find the Qt platform plugin "windows" in ""
+    """
+    platform_env = os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH", "").strip()
+    if platform_env:
+        return
+    _set_qt_env_for_conda312()
 
 
 if __name__ == "__main__":

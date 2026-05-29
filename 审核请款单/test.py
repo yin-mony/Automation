@@ -8,17 +8,10 @@ from pywinauto import Application
 from SaihuERPLogin import SaihuERPLogin
 
 
-def connect_edge_with_ap():
-    debug_addr = os.getenv("EDGE_DEBUG_ADDR", "127.0.0.1:9222").strip()
-    co = ChromiumOptions().set_address(debug_addr)
-    page = ChromiumPage(co)
-    page.set.window.max()
-    return page, debug_addr
 
 
 def main(mode="recent_7_days", start_date="", end_date="", username=None, password=None, export_dir=""):
-    page, debug_addr = connect_edge_with_ap()
-    print(f"已连接 Edge 实例: {debug_addr}", flush=True)
+    page = ChromiumPage()
 
 
 
@@ -119,33 +112,33 @@ def main(mode="recent_7_days", start_date="", end_date="", username=None, passwo
     # with open('header_text.txt', 'w', encoding='utf-8') as f:
     #     f.write(html)
     # 从第二页开始遍历
-    for page_num in range(2, total_pages + 1):
-        shadow.ele('x://button[@aria-label = "下一页"]', timeout=5).click()
-        time.sleep(1)
-        # 换页后默认操作，进行点击
-        header = shadow.ele('x://span[@title="全选/取消"]', timeout=10)
-        header.scroll.to_see()
-        rect = header.rect
-        x = rect.location[0] + rect.size[0] / 2
-        y = rect.location[1] + rect.size[1] / 2
-        # 点击全选/取消
-        page.actions.move_to((x, y)).click()
+    # for page_num in range(2, total_pages + 1):
+    #     shadow.ele('x://button[@aria-label = "下一页"]', timeout=5).click()
+    #     time.sleep(1)
+    #     # 换页后默认操作，进行点击
+    #     header = shadow.ele('x://span[@title="全选/取消"]', timeout=10)
+    #     header.scroll.to_see()
+    #     rect = header.rect
+    #     x = rect.location[0] + rect.size[0] / 2
+    #     y = rect.location[1] + rect.size[1] / 2
+    #     # 点击全选/取消
+    #     page.actions.move_to((x, y)).click()
 
-        # 点击下载
-        shadow.ele('x://span[text()="打印/下载"]', timeout=5).click()
-        shadow.ele('x://span[@class="el-cascader-node__label"]/span[text()="下载请款单及附件"]', timeout=5).click()
-        time.sleep(1)
-        # 连接到已打开的Chrome下载窗口
-        app = Application(backend="uia").connect(title_re=".*赛狐ERP.*")
+    #     # 点击下载
+    #     shadow.ele('x://span[text()="打印/下载"]', timeout=5).click()
+    #     shadow.ele('x://span[@class="el-cascader-node__label"]/span[text()="下载请款单及附件"]', timeout=5).click()
+    #     time.sleep(1)
+    #     # 连接到已打开的Chrome下载窗口
+    #     app = Application(backend="uia").connect(title_re=".*赛狐ERP.*")
 
-        # 通过title参数找到并点击
-        dlg = app.window(title_re=".*赛狐ERP.*")
-        radio_button = dlg.child_window(title="下载请款单 ", control_type="RadioButton")
-        radio_button.click()
-        time.sleep(1)
-        download_button = dlg.child_window(title="下载", control_type="Button")
-        download_button.click()
-        time.sleep(100)
+    #     # 通过title参数找到并点击
+    #     dlg = app.window(title_re=".*赛狐ERP.*")
+    #     radio_button = dlg.child_window(title="下载请款单 ", control_type="RadioButton")
+    #     radio_button.click()
+    #     time.sleep(1)
+    #     download_button = dlg.child_window(title="下载", control_type="Button")
+    #     download_button.click()
+    #     time.sleep(100)
         # time.sleep(10)
     time.sleep(1)
     # shadow.ele('x://div/button/span[text()="导出"]', timeout=10).click(by_js=True)
