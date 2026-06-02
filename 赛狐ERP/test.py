@@ -53,6 +53,7 @@ class SaihuERPLogin:
         if prefer_entry_check:
             if self._enter_entry_once_and_check():
                 print("检测到账号未退出，直接进入赛狐业务页面。", flush=True)
+                time.sleep(3)
                 return True
             print("ENTRY_URL 未能直接进入业务页，回到登录页执行登录。", flush=True)
         else:
@@ -546,7 +547,7 @@ if __name__ == "__main__":
     from DrissionPage import ChromiumPage
 
     # 创建浏览器页面
-    page = ChromiumPage()
+    page = ChromiumPage(9000)
 
     # 创建登录对象
     login = SaihuERPLogin(page)
