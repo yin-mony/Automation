@@ -2,6 +2,24 @@
 
 将单个 Excel（`.xlsx`）按某一列（通常为「店铺 / 门店」）拆成多个文件：每个不同取值对应一个独立的 `.xlsx`，便于按门店分发或归档。
 
+## 代码结构
+
+```
+按门店维度拆分表格/
+├── Tabellen_teilen.py      # Qt GUI + --cli 命令行入口
+├── excel_store_split.py    # 读表头、按列拆分、写多个 xlsx
+├── requirements.txt
+├── build_exe.bat
+├── 按门店拆分表格.spec
+└── README.md
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| `Tabellen_teilen.py` | `main()`：GUI 选文件/店铺列/输出目录；`SplitWorker` 后台调用拆分；支持 `--cli` |
+| `excel_store_split.py` | `split_by_store()` 按列分组写出；`sanitize_name()` 处理 Windows 非法文件名 |
+| `build_exe.bat` | 打包为 `dist\按门店拆分表格.exe` |
+
 ## 功能说明
 
 - 图形界面（Qt / PySide6）：选择输入文件、输出文件夹、用于拆分的列名；支持常见表头自动识别（如「店铺」「门店」「Store」等）。
@@ -54,17 +72,6 @@ pyinstaller 按门店拆分表格.spec
 ```
 
 说明：`dist/`、`build/` 体积较大，已通过仓库根目录 `.gitignore` 忽略，不要提交到 Git。
-
-## 目录内文件说明
-
-| 文件 | 说明 |
-|------|------|
-| `Tabellen_teilen.py` | 程序入口：Qt 界面、后台线程调度、可选 `--cli` 命令行 |
-| `excel_store_split.py` | 纯逻辑：读表头、猜店铺列、按列分组写多个 xlsx（无界面） |
-| `requirements.txt` | Python 依赖列表 |
-| `build_exe.bat` | 一键调用 PyInstaller 打包 |
-| `按门店拆分表格.spec` | PyInstaller 规格文件，便于复现打包参数 |
-| `README.md` | 本说明（详细使用说明以本文件为准） |
 
 ## 常见问题
 

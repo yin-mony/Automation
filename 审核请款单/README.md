@@ -2,6 +2,34 @@
 
 用于在赛狐 ERP 中批量下载请款单及附件，支持通过图形界面选择下载模式（最近 7 天、最近 30 天、本月、上月）并自动分页执行下载动作。
 
+## 代码结构
+
+```
+审核请款单/
+├── run.py                  # PyQt5 GUI 入口
+├── test.py                 # 自动化主流程（登录、筛选、下载）
+├── SaihuERPLogin.py        # 赛狐 ERP 登录（验证码 OCR）
+├── 1111.py                 # 下载目录 zip 探测草稿
+├── .gitignore
+├── 审核请款单.spec
+├── 请款单下载.spec
+└── README.md
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| `run.py` | GUI：账号/密码/下载模式/日志；后台线程调用 `test.main`；可读写 `run_config.json` |
+| `test.py` | `main(mode, …)`：DrissionPage 登录 → 财务/请款单 → 按模式筛选 → 下载请款单及附件 |
+| `SaihuERPLogin.py` | `SaihuERPLogin.login()`：会话复用、验证码识别、手动兜底 |
+| `1111.py` | 在 Downloads 查找最新 `请款单*.zip` 的实验脚本 |
+
+### 配置说明（`run.py` / `run_config.json`）
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | `recent_7_days` / `recent_30_days` / `this_month` / `last_month` |
+| `username` / `password` | 赛狐账号（**勿将含真实密码的配置提交到 Git**） |
+
 ## 当前实现状态
 
 - 已实现 `run.py` 图形界面入口（账号、密码、下载模式、日志输出）。

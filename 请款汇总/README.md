@@ -2,6 +2,30 @@
 
 将请款单 PDF 批量转换为 Excel，并提取关键字段生成汇总表。
 
+## 代码结构
+
+```
+请款汇总/
+├── run.py                  # PyQt5 GUI：选文件夹并执行 test.py
+├── test.py                 # PDF→Excel + 字段汇总主逻辑
+├── ceshi.py                # 已合并至 test.py 的占位说明
+├── 请款汇总.spec
+├── 请款汇总-单文件.spec
+└── README.md
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| `run.py` | `RunWindow`：选择目标文件夹，设置环境变量 `TARGET_FOLDER`，`runpy.run_path(test.py)` 并捕获日志 |
+| `test.py` | 遍历子文件夹 PDF → `pdf_to_excel`；汇总 `采购单号`、`品名/SKU`、`采购单价` 等字段 |
+| `ceshi.py` | 废弃提示，非正式入口 |
+
+### 环境变量
+
+| 变量 | 含义 |
+| --- | --- |
+| `TARGET_FOLDER` | 请款单批量下载根目录（含各子文件夹 PDF） |
+
 ## 当前实现状态
 
 - 已实现可运行的 Qt 图形界面入口：`run.py`。

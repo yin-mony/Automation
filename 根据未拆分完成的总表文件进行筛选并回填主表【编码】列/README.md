@@ -9,6 +9,35 @@
 - 将匹配成功的 `asin` 聚合后回填到主表 `编码（必填）`（或兼容 `编码(必填)`）列；
 - 支持多个 asin 用英文逗号拼接写入。
 
+## 代码结构
+
+```
+根据未拆分完成的总表文件进行筛选并回填主表【编码】列/
+├── Filter_add.py           # 读取、匹配、回填、写回主表
+├── run.py                  # CLI / GUI 双入口
+├── test.py                 # 本地测试草稿（非正式入口）
+├── requirements.txt
+├── run_gui.bat
+├── build_exe.bat
+├── 匹配回填工具.spec
+└── README.md
+```
+
+| 文件 | 职责 |
+| --- | --- |
+| `Filter_add.py` | `run_pipeline()`：校验列 → 多副表匹配 → 聚合 `asin` 回填编码列 |
+| `run.py` | `--mode gui`：Qt 选主表/副表；`--mode cli`：交互输入路径 |
+| `run_gui.bat` | 安装依赖并启动 GUI |
+
+### 匹配规则（默认列名）
+
+| 角色 | 列名 |
+| --- | --- |
+| 主表键 | `描述` |
+| 副表键 | `myp_order_id` |
+| 取值 | `asin` |
+| 回填 | `编码（必填）` 或 `编码(必填)` |
+
 ## 当前实现状态
 
 - 已完成核心主流程封装：`Filter_add.py`
@@ -31,19 +60,6 @@ pip install -r requirements.txt
 ```
 
 主要依赖：`pandas`、`openpyxl`、`PySide6`；打包 exe 还需 `pyinstaller`（已写在 `requirements.txt` 中）。
-
-## 文件说明
-
-| 文件 | 说明 |
-|------|------|
-| `Filter_add.py` | 主逻辑模块（读取、校验、匹配、回填、写回） |
-| `run.py` | 应用入口（`--mode cli` / `--mode gui`） |
-| `requirements.txt` | Python 依赖列表 |
-| `run_gui.bat` | 源码运行 GUI：先安装依赖再启动（适合新环境双击） |
-| `build_exe.bat` | 一键调用 PyInstaller 打包 |
-| `匹配回填工具.spec` | PyInstaller 规格文件，便于复现打包参数 |
-| `test.py` | 测试草稿，仅用于本地验证，不作为正式入口 |
-| `README.md` | 本说明 |
 
 ## 使用方式
 
