@@ -19,17 +19,15 @@ class ExcelUtil:
         cols = [
             "Creator name",
             "Time",
-            "Video-attributed items sold",
-            "Video-attributed GMV ($)",
-
-
+            "Video items sold",
+            "Video indirect GMV ($)"
         ]
 
         # 筛选字段
         df = df[cols]
 
         # 过滤 Video items sold > 0
-        df = df[df["Video-attributed items sold"] > 0]
+        df = df[df["Video items sold"] > 0]
 
         # 返回二维数组
         result = df.values.tolist()
@@ -40,10 +38,6 @@ class ExcelUtil:
         file_paths = []
 
         for name in os.listdir(dir_path):
-            if name.startswith("~$"):
-                continue
-            if not name.lower().endswith(".xlsx"):
-                continue
             full_path = os.path.join(dir_path, name)
             if os.path.isfile(full_path):
                 file_paths.append(full_path)
@@ -97,28 +91,30 @@ class ExcelUtil:
             while ws.cell(row=row, column=date_col).value:
                 row += 1
 
-            ws.cell(row=row, column=date_col, value=date)
-            ws.cell(row=row, column=gmv_col, value=gmv)
-            ws.cell(row=row, column=sales_col, value=sales)
+            # ws.cell(row=row, column=date_col, value=date)
+            # ws.cell(row=row, column=gmv_col, value=gmv)
+            # ws.cell(row=row, column=sales_col, value=sales)
+            ws.cell(row=row, column=date_col, value=date)  # 日期写入日期列
+            ws.cell(row=row, column=gmv_col, value=gmv)  # GMV写入GMV列 ✅
+            ws.cell(row=row, column=sales_col, value=sales)  # 销量写入销量列 ✅
 
         wb.save(file_path)
 
-    def MergeData(self, file_url, SummaryTable):
-        # file_url=导出 xlsx 所在文件夹；SummaryTable=汇总表 xlsx 文件
+    def MergeData(self,file_url, SummaryTable):
         print(file_url, SummaryTable)
-        files = self.get_file_paths(file_url)
+        files = self.get_file_paths(SummaryTable)
         for file in files:
             data = self.get_video_sales_data(file)
-            self.append_data_to_excel(SummaryTable, data)
+            self.append_data_to_excel(file_url, data)
 
 
 
 
 if __name__ == '__main__':
     excel_util = ExcelUtil()
-    SummaryTable = ""
-    file_url = ""
-    excel_util.MergeData(file_url, SummaryTable)
+    SummaryTable = r'C:\RPA流程\月度销售额统计\汇总表.xlsx'
+    file_url = r'C:\RPA流程\月度销售额统计\flie'
+    excel_util.MergeData(SummaryTable, file_url)
 
 
 

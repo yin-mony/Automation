@@ -1,8 +1,0 @@
-# 复制本文件为 monthly_sales_gui_config.txt 后按实际环境填写（后者已被 .gitignore 忽略）
-summary_path=
-export_dir=
-auto_username=
-auto_password=
-auto_ip=
-auto_port=
-auto_experts=

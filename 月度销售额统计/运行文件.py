@@ -11,9 +11,9 @@ class App:
         self.root.geometry("620x260")
         self.root.resizable(False, False)
 
-        # 默认路径（请按本机填写或通过界面选择）
-        self.summary_path = tk.StringVar(value="")
-        self.data_path = tk.StringVar(value="")
+        # 默认路径
+        self.summary_path = tk.StringVar(value=r'C:\RPA流程\月度销售额统计\汇总表.xlsx')
+        self.data_path = tk.StringVar(value=r'C:\RPA流程\月度销售额统计\flie')
 
         self.create_widgets()
 

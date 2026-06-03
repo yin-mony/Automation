@@ -8,6 +8,7 @@ logs/
 *.zip
 
 # Python / 打包
+.venv/
 venv/
 __pycache__/
 *.py[cod]
