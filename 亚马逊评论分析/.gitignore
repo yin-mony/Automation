@@ -1,0 +1,17 @@
+# 本地配置（含账号、API Key，勿提交）
+comment_download_gui_config.txt
+comment_analyzer_gui_config.txt
+
+# 运行与打包产物
+logs/
+flie/
+build/
+dist/
+*.xlsx
+*.zip
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.spec

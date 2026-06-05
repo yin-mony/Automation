@@ -1,0 +1,9 @@
+DrissionPage>=4.0
+psutil
+python-dateutil
+opencv-python
+numpy
+pandas
+openpyxl
+pywinauto
+requests
