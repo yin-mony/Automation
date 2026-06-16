@@ -1,0 +1,18 @@
+[Unit]
+Description=QYVX callback service for www.bonison.net
+After=network.target
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/qyvx_callback
+EnvironmentFile=/www/qyvx_callback/.env
+ExecStart=/usr/bin/python3 /www/qyvx_callback/server.py
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

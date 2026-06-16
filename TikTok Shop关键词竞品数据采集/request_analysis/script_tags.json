@@ -1,0 +1,29 @@
+[
+  {
+    "index": 1,
+    "id": "",
+    "type": "",
+    "src": "https://lf16-cdn-tos.tiktokcdn-us.com/obj/static-tx/oec-ttweb-captcha/loader/ttp/2.0.0.19/captcha/index.js",
+    "content_length": 0,
+    "json_file": "",
+    "field_hits": []
+  },
+  {
+    "index": 2,
+    "id": "captcha-config",
+    "type": "application/json",
+    "src": "",
+    "content_length": 1422,
+    "json_file": "script_002_captcha-config.json",
+    "field_hits": []
+  },
+  {
+    "index": 3,
+    "id": "",
+    "type": "",
+    "src": "https://lf16-cdn-tos.tiktokcdn-us.com/obj/static-tx/oec-ttweb-captcha/loader/ttp/2.0.0.14/captcha-init.js",
+    "content_length": 0,
+    "json_file": "",
+    "field_hits": []
+  }
+]

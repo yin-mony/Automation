@@ -18,7 +18,7 @@ from analysis import CommentAnalyzer
 # 与 analysis.py 中 if __name__ == "__main__" 内默认值保持一致（未改动 analysis.py，此处手工同步）
 DEFAULT_CONFIG = {
     "excel_path": r"C:\RPA流程\亚马逊评论分析\flie\亚马逊评论.xlsx",
-    "api_key": "sk-c6110db8ead745e5bf1078a63c80a427",
+    "api_key": "",
 }
 
 
@@ -84,7 +84,7 @@ class CommentAnalyzerApp:
         )
         row += 1
 
-        ttk.Label(form, text="DeepSeek API Key:").grid(row=row, column=0, sticky="w", pady=6)
+        ttk.Label(form, text="ChatGPT API Key:").grid(row=row, column=0, sticky="w", pady=6)
         ttk.Entry(form, textvariable=self.api_key, width=72, show="*").grid(
             row=row, column=1, columnspan=2, sticky="ew", padx=8, pady=6
         )
@@ -104,7 +104,7 @@ class CommentAnalyzerApp:
 
         ttk.Label(
             form,
-            text="说明：读取评论 Excel，调用 DeepSeek 生成好评卖点、差评痛点与改进建议，"
+            text="说明：读取评论 Excel，调用 ChatGPT 生成好评卖点、差评痛点与改进建议，"
             "报告保存在 Excel 同目录下的「分析报告」文件夹。",
             foreground="gray",
             wraplength=760,
@@ -206,7 +206,7 @@ class CommentAnalyzerApp:
         if not Path(excel_path).is_file():
             raise ValueError(f"Excel 文件不存在：\n{excel_path}")
         if not api_key:
-            raise ValueError("请填写 DeepSeek API Key。")
+            raise ValueError("请填写 ChatGPT（OpenAI）API Key。")
 
         return excel_path, api_key
 

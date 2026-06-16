@@ -1,0 +1,14 @@
+[
+  {
+    "script_url": "https://lf16-cdn-tos.tiktokcdn-us.com/obj/static-tx/oec-ttweb-captcha/loader/ttp/2.0.0.19/captcha/index.js",
+    "saved_file": "script_001.js",
+    "api_hints": [
+      "https://api-verification.tiktokshops.us"
+    ]
+  },
+  {
+    "script_url": "https://lf16-cdn-tos.tiktokcdn-us.com/obj/static-tx/oec-ttweb-captcha/loader/ttp/2.0.0.14/captcha-init.js",
+    "saved_file": "script_002.js",
+    "api_hints": []
+  }
+]

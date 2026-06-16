@@ -37,52 +37,65 @@ class Specification:
             for path in root.rglob("edecker.exe"):
                 return str(path)
         raise FileNotFoundError("edecker.exe not found")
-    def YidekeLogin(self):
+    def YidekeLogin(self, max_retries=3, retry_interval=2):
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                if attempt > 1:
+                    try:
+                        ChromiumPage("127.0.0.1:9222").refresh()
+                    except Exception as e_refresh:
+                        print(f"重试前刷新浏览器失败，继续尝试登录: {e_refresh}")
 
-        page = ChromiumPage("127.0.0.1:9222")
-        page.ele('x://span[text()="登录"]').click()
-        time.sleep(5)
+                page = ChromiumPage("127.0.0.1:9222")
+                page.ele('x://span[text()="登录"]').click()
+                time.sleep(5)
 
+                win_app = Application(backend='win32').connect(title_re="易得客浏览器")
+                hwnd = win_app.window(title_re="易得客浏览器").handle
+                app = Application(backend='uia').connect(handle=hwnd)
+                dlg = app.window(handle=hwnd)
+                dlg.wait("visible ready", timeout=15)
+                # dlg.print_control_identifiers()
 
-        win_app = Application(backend='win32').connect(title_re="易得客浏览器")
-        hwnd = win_app.window(title_re="易得客浏览器").handle
-        app = Application(backend='uia').connect(handle=hwnd)
-        dlg = app.window(handle=hwnd)
-        dlg.wait("visible ready", timeout=15)
-        # dlg.print_control_identifiers()
+                phone_label = dlg.child_window(title="手机号", control_type="Text")
+                if phone_label.exists():
+                    # 获取"手机号"标签的位置
+                    label_rect = phone_label.rectangle()
 
-        phone_label = dlg.child_window(title="手机号", control_type="Text")
-        if phone_label.exists():
-            # 获取"手机号"标签的位置
-            label_rect = phone_label.rectangle()
+                    # 在标签下方查找Edit控件
+                    all_edits = dlg.descendants(control_type="Edit")
+                    for edit in all_edits:
+                        edit_rect = edit.rectangle()
+                        # 如果Edit控件在标签下方且x坐标相近
+                        if (edit_rect.top > label_rect.bottom and
+                                abs(edit_rect.left - label_rect.left) < 50):
+                            edit.set_text(self.username)
+                            print("手机号输入成功")
+                            break
 
-            # 在标签下方查找Edit控件
-            all_edits = dlg.descendants(control_type="Edit")
-            for edit in all_edits:
-                edit_rect = edit.rectangle()
-                # 如果Edit控件在标签下方且x坐标相近
-                if (edit_rect.top > label_rect.bottom and
-                        abs(edit_rect.left - label_rect.left) < 50):
-                    edit.set_text(self.username)
-                    print("手机号输入成功")
+                # 定位密码输入框
+                password_label = dlg.child_window(title="密码", control_type="Text")
+                if password_label.exists():
+                    # 获取"密码"标签的位置
+                    label_rect = password_label.rectangle()
+
+                    # 在标签下方查找Edit控件
+                    all_edits = dlg.descendants(control_type="Edit")
+                    for edit in all_edits:
+                        edit_rect = edit.rectangle()
+                        # 如果Edit控件在标签下方且x坐标相近
+                        if (edit_rect.top > label_rect.bottom and
+                                abs(edit_rect.left - label_rect.left) < 50):
+                            edit.set_text(self.password)  # 替换为实际密码
+                            print("密码输入成功")
+                            break
+                dlg.child_window(title="登录易得客", control_type="Button").click()
+                return
+            except Exception as e:
+                last_error = e
+                if attempt >= max_retries:
                     break
-
-        # 定位密码输入框
-        password_label = dlg.child_window(title="密码", control_type="Text")
-        if password_label.exists():
-            # 获取"密码"标签的位置
-            label_rect = password_label.rectangle()
-
-            # 在标签下方查找Edit控件
-            all_edits = dlg.descendants(control_type="Edit")
-            for edit in all_edits:
-                edit_rect = edit.rectangle()
-                # 如果Edit控件在标签下方且x坐标相近
-                if (edit_rect.top > label_rect.bottom and
-                        abs(edit_rect.left - label_rect.left) < 50):
-                    edit.set_text(self.password)  # 替换为实际密码
-                    print("密码输入成功")
-                    break
-        dlg.child_window(title="登录易得客", control_type="Button").click()
-
-
+                print(f"YidekeLogin 第{attempt}次尝试失败，{retry_interval}秒后重试: {e}")
+                time.sleep(retry_interval)
+        raise RuntimeError(f"YidekeLogin 重试{max_retries}次后仍失败") from last_error

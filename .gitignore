@@ -7,6 +7,19 @@ __pycache__/
 venv/
 .env/
 
+# Node
+node_modules/
+
+# 浏览器自动化临时配置目录（DrissionPage 等）
+????????-????-????-????-????????????
+
+.env/
+**/.env
+!**/.env.example
+
+# 含密钥的本地配置（请使用 *.example.py）
+自动发送offer/config.py
+
 # PyInstaller
 build/
 dist/
@@ -15,6 +28,7 @@ dist/
 # IDE / OS
 .idea/
 .vscode/
+.cursor/
 *.swp
 .DS_Store
 Thumbs.db

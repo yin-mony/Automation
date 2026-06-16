@@ -9,9 +9,9 @@ from DrissionPage import ChromiumPage
 
 # 工作流程主逻辑
 # 模式二
-# 低价商城列表（Excel文件）直接在商品列表创建SKU创建商品并在线配对
+# 低横向变体工作表（Excel文件）直接在商品列表创建SKU创建商品并在线配对
 
-class LowPricePage:
+class VariantPage:
     def __init__(self,page,username,password,excel_path):
         self.page = page
         self.username = username
@@ -22,79 +22,22 @@ class LowPricePage:
         if path and Path(path).exists():
             paths = Path(path)
         else:
-            paths = Path(r"C:\Users\admin\Desktop\低价商城创建ERP-SKU.xlsx")
+            paths = Path(r"C:\Users\admin\Desktop\新品sku配对+横向变体配对自动提醒.xlsx")
             print(f"使用默认路径: {paths}")
         # 读取 Excel 文件
-        try:
-            df = pd.read_excel(paths, sheet_name='工作表1')  # 指定工作表
-        except Exception as exc:
-            print(f"pandas读取失败，尝试Excel COM回退读取: {exc}")
-            try:
-                import win32com.client  # type: ignore
-            except ImportError as import_exc:
-                raise RuntimeError("回退读取需要 pywin32（win32com），请先安装: pip install pywin32") from import_exc
-
-            excel = win32com.client.DispatchEx("Excel.Application")
-            excel.Visible = False
-            excel.DisplayAlerts = False
-            workbook = None
-            try:
-                workbook = excel.Workbooks.Open(
-                    str(paths.resolve()),
-                    UpdateLinks=0,
-                    ReadOnly=True,
-                    IgnoreReadOnlyRecommended=True,
-                    CorruptLoad=1,
-                )
-                worksheet = workbook.Worksheets("工作表1")
-                used_range = worksheet.UsedRange.Value
-                if not used_range:
-                    return []
-                rows = list(used_range)
-                data = [list(row) if isinstance(row, tuple) else [row] for row in rows]
-                raw_df = pd.DataFrame(data)
-
-                header_idx = None
-                for idx in raw_df.index:
-                    row_values = raw_df.loc[idx].fillna("").astype(str).str.strip().tolist()
-                    if "时间" in row_values and "SKU" in row_values:
-                        header_idx = idx
-                        break
-
-                if header_idx is None:
-                    raise RuntimeError("回退读取未识别到包含“时间”和“SKU”的表头行")
-
-                raw_header = raw_df.loc[header_idx].fillna("").astype(str).str.strip().tolist()
-                df = raw_df.loc[header_idx + 1:].copy()
-                df.columns = raw_header
-                df = df.dropna(how="all")
-            finally:
-                if workbook is not None:
-                    workbook.Close(SaveChanges=False)
-                excel.Quit()
-
-        time_series = df["时间"].astype(str).str.strip()
-        time_series = time_series.replace("时间", pd.NA)
-        df["时间"] = pd.to_datetime(time_series, errors="coerce", format="mixed", utc=True)  # 确保是日期类型
-        df = df[df["时间"].notna()]
-        if df.empty:
-            print("未找到可用的时间数据")
-            return []
-        df["时间"] = df["时间"].dt.tz_localize(None)
-        latest_date = df["时间"].dt.date.max()  # 获取最大日期（按日期部分）
-        print(f"自动检测到的最新日期: {latest_date}")
-        # 筛选出等于最新日期（整天）的所有行
-        result = df[df["时间"].dt.date == latest_date]
+        df = pd.read_excel(paths, sheet_name='横向变体')  # 指定工作表
+        result = df[df["情况"] == '未配对']
         # 提取需要的列值
         selected_data = result[[
-            "品名", "SKU", "ASIN",
-            "长 包装规格（cm）",
-            "宽 包装规格（cm)",
-            "高 包装规格（cm）",
-            "单品毛重（kg）",
-            "采购价（元）",
-            "负责人",
-            "时间"
+            "sku", "ASIN",
+            "FNSKU",
+            "包装-长（cm）",
+            "包装-宽（cm）",
+            "包装-高（cm）",
+            "包装-重量（g）",
+            "不含税成本价格",
+            "人员",
+            "情况"
         ]].astype(str)
         # 输出对应的行数据
         print(selected_data.to_string(index=False))
@@ -104,28 +47,27 @@ class LowPricePage:
         data = []
         for idx, item in enumerate(dict_list, 1):
             # 定义常量
-            pm = item["品名"]
-            sku = item["SKU"]
+            # 品名与sku一致
+            pm = item["sku"]
+            sku = item["sku"]
             asin = item["ASIN"]
-            chang = item["长 包装规格（cm）"]
-            kuan = item["宽 包装规格（cm)"]
-            gao = item["高 包装规格（cm）"]
-            liang = item["单品毛重（kg）"]
-            price = item["采购价（元）"]
-            name = item["负责人"]
+            chang = item["包装-长（cm）"]
+            kuan = item["包装-宽（cm）"]
+            gao = item["包装-高（cm）"]
+            liang = item["包装-重量（g）"]
+            price = item["不含税成本价格"]
+            name = item["人员"]
 
             data.append({
                 "品名": pm,
                 "SKU": sku,
                 "ASIN": asin,
-                "长 包装规格（cm）": chang,
-                "宽 包装规格（cm)": kuan,
-                "高 包装规格（cm）": gao,
-                "单品毛重（kg）": liang,
-                "采购价（元）": price,
-                "负责人": name,
-                "sku": sku,
-                "asin": asin
+                "包装-长（cm）": chang,
+                "包装-宽（cm）": kuan,
+                "包装-高（cm）": gao,
+                "包装-重量（g）": liang,
+                "不含税成本价格": price,
+                "人员": name,
             })
         return data
 
@@ -141,7 +83,7 @@ class LowPricePage:
         login.login()
         print("赛狐页面登录流程完成，当前登录态已保持。", flush=True)
         for idx, item in enumerate(data, 1):
-            print(f"\n处理第 {idx}/{len(data)} 条: {item['sku']}")
+            print(f"\n处理第 {idx}/{len(data)} 条: {item['SKU']}")
             try:
                 # 开始流程
                 page.ele('x://div/ul/li/span[text()="商品"]', timeout=5).click()
@@ -160,8 +102,8 @@ class LowPricePage:
                 data_sku = item["SKU"]
                 page.ele('x://label[contains(text(), "SKU")]/following::div/input[1]', timeout=3).input(f"{data_sku}")
                 time.sleep(1)
-                # 查看人 对应列表文件里的 负责人
-                data_name = item["负责人"]
+                # 查看人 对应列表文件里的 人员
+                data_name = item["人员"]
                 page.ele('x://label[text()="查看人："]/following::div[@placeholder="请选择"]', timeout=5).click()
                 time.sleep(1)
                 page.ele('x:(//div[@class="select-menu"]/div/input[@class="sf_select__filter__input is-small"])',
@@ -175,23 +117,23 @@ class LowPricePage:
                 print("继续填写，切换到采购信息页面")
                 page.ele('x://div[normalize-space()="采购信息"]').click()
                 time.sleep(1)
-                # 采购成本 对应列表文件里的 采购价（元）
-                data_price = item["采购价（元）"]
+                # 采购成本 对应列表文件里的 不含税成本价格
+                data_price = item["不含税成本价格"]
                 page.ele('x:(//span[text()="采购成本"]/following::div/input)[1]').input(f"{data_price}")
                 time.sleep(1)
                 print("继续填写，切换到规格信息页面")
                 page.ele('x://div[normalize-space()="规格信息"]').click()
                 time.sleep(1)
-                data_chang = item["长 包装规格（cm）"]
+                data_chang = item["包装-长（cm）"]
                 page.ele('x://span[text()="商品规格"]/following::div/input[@placeholder="长"]').input(f"{data_chang}")
                 time.sleep(1)
-                data_kuan = item["宽 包装规格（cm)"]
+                data_kuan = item["包装-宽（cm）"]
                 page.ele('x://span[text()="商品规格"]/following::div/input[@placeholder="宽"]').input(f"{data_kuan}")
                 time.sleep(1)
-                data_gao = item["高 包装规格（cm）"]
+                data_gao = item["包装-高（cm）"]
                 page.ele('x://span[text()="商品规格"]/following::div/input[@placeholder="高"]').input(f"{data_gao}")
                 time.sleep(1)
-                data_liang = item["单品毛重（kg）"]
+                data_liang = item["包装-重量（g）"]
                 page.ele('x://span[text()="商品规格"]/following::div/input[@debounce="100"]').input(f"{data_liang}")
                 time.sleep(1)
 
@@ -254,11 +196,11 @@ class LowPricePage:
 
 if __name__ == '__main__':
     page = ChromiumPage()
-    run = LowPricePage(
+    run = VariantPage(
         page=page,
-        username='self.username',
+        username='zidonghua',
         password='',
-        excel_path=r"C:\Users\admin\Desktop\低价商城创建ERP-SKU.xlsx"
+        excel_path=r"C:\Users\admin\Desktop\新品sku配对+横向变体配对自动提醒.xlsx"
     )
     run.main()
 

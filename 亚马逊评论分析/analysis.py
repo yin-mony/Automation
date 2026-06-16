@@ -9,7 +9,8 @@ class CommentAnalyzer:
     def __init__(self, path, api_key):
         self.path = Path(path)
         self.api_key = api_key
-        self.api_url = "https://api.deepseek.com/v1/chat/completions"
+        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.model = "gpt-4o-mini"
 
     def run(self):
         """运行分析"""
@@ -85,7 +86,7 @@ class CommentAnalyzer:
 ..."""
 
         try:
-            response = self.call_deepseek_api(prompt)
+            response = self.call_chatgpt_api(prompt)
             return response
         except Exception as e:
             print(f"  AI分析失败: {e}")
@@ -115,21 +116,21 @@ class CommentAnalyzer:
 ..."""
 
         try:
-            response = self.call_deepseek_api(prompt)
+            response = self.call_chatgpt_api(prompt)
             return response
         except Exception as e:
             print(f"  生成建议失败: {e}")
             return "AI分析失败，请检查API配置"
 
-    def call_deepseek_api(self, prompt):
-        """调用DeepSeek API"""
+    def call_chatgpt_api(self, prompt):
+        """调用 ChatGPT（OpenAI）API"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
 
         data = {
-            "model": "deepseek-chat",
+            "model": self.model,
             "messages": [
                 {"role": "system",
                  "content": "你是一个专业的电商评论分析助手，擅长从用户评论中提取关键信息并给出有价值的分析。"},
@@ -208,9 +209,13 @@ class CommentAnalyzer:
 
 # 使用
 if __name__ == "__main__":
-    # 配置
-    DEEPSEEK_API_KEY = "sk-c6110db8ead745e5bf1078a63c80a427"  # 替换为你的API Key
+    import os
+
+    CHATGPT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     excel_path = r"C:\RPA流程\亚马逊评论分析\flie\亚马逊评论.xlsx"
 
-    analyzer = CommentAnalyzer(excel_path, DEEPSEEK_API_KEY)
+    if not CHATGPT_API_KEY:
+        raise ValueError("请设置环境变量 OPENAI_API_KEY，或使用 excel_run.py GUI 填写 API Key。")
+
+    analyzer = CommentAnalyzer(excel_path, CHATGPT_API_KEY)
     analyzer.run()
