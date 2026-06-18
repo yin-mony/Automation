@@ -18,8 +18,12 @@ class Comment:
     def __init__(self,config):
         self.username = config["username"]
         self.password = config["password"]
-        self.ip = config["ip"]
-        self.port = config["port"]
+        # 店铺IP
+        ips = config["ip"]
+        self.ip = ips if isinstance(ips, list) else [ips]
+        # 端口
+        ports = config["port"]
+        self.port = ports if isinstance(ports, list) else [ports]
         self.experts = config["experts"]
         self.file_path = config["file_path"]
 
@@ -111,17 +115,13 @@ class Comment:
         #     time.sleep(3)
         time.sleep(2)
         for ip in ips:
-            btn = tab.ele(
+            tab.ele(
                 f'x://div[contains(@class,"platform-region")]//span[normalize-space()="美国"]'
                 f'/ancestor::div[contains(@class,"shop-item")]'
                 f'[.//div[contains(@class,"text") and normalize-space()="{ip}"]]'
                 f'//button[normalize-space()="访问"]',
                 timeout=30
-            )
-            if btn:
-                btn.click()
-            else:
-                print(f"未找到美国店铺，IP={ip}")
+            ).click()
             time.sleep(3)
         self.kill_edecker(browser.process_id)
         time.sleep(1)
@@ -182,83 +182,122 @@ class Comment:
             print("启动失败:", e)
             raise
 
+    def find_seller_tab(self, port, timeout=90):
+        browser = Chromium(port)
+        deadline = time.time() + timeout
+
+        while time.time() < deadline:
+            for tab_id in browser.tab_ids:
+                tab = browser.get_tab(tab_id)
+                url = (tab.url or '').lower()
+                print("检测 tab URL:", url)
+
+                if url.startswith("chrome-extension://"):
+                    continue
+
+                if any(k in url for k in ("seller", "tiktok", "tiktokglobalshop")):
+                    return tab
+
+            time.sleep(1)
+
+        raise RuntimeError(f"未找到 TikTok seller 后台标签页，端口={port}")
+
     # 自动化流程操作
-    def main(self,page):
-        # https://www.amazon.com
-        # page = Chromium()
-        # 新建标签页进入
-        # 定义星级列表
-        stars = ["5 star only", "4 star only", "3 star only", "2 star only", "1 star only"]
-        star_names = ["5星", "4星", "3星", "2星", "1星"]
-        # 存储所有评论
-        all_comments = {}
-
-        page = page.new_tab("https://www.amazon.com")
+    def main(self):
+        sp = Specification(self.username, self.password)  # 其他易得客
+        time.sleep(5)
+        sp.YidekeLogin()
         time.sleep(3)
-        page.ele('x://div/input[@placeholder="Search Amazon"]',timeout=25).click()
-        for experts in self.experts:
-            print(f"\n正在处理商品: {experts}")
-            all_comments[experts] = {}
-            page.ele('x://div/input[@placeholder="Search Amazon"]',timeout=30).input(f'{experts}\n',clear=True)
+        # self.visit_shop(self.ip, self.port)
+        self.run_edecker_automation(self.ip)  # 访问全部店铺
+        time.sleep(4)
+        for index, ip in enumerate(self.ip):
+            self.kill_edecker_on_port(self.port[index])  # 启动前清理占用端口的 edecker
+            time.sleep(1)
+            self.start_edecker(self.ip[index], self.port[index])  # 启动指定易得客浏览器
+            # time.sleep(2)
+            self.wait_for_port(self.port[index])
+            page = ChromiumPage("127.0.0.1:" + str(self.port[index]))  # 接管浏览器
+            # time.sleep(2)
+            try:
+                page.set.window.max()
+            except RuntimeError:
+                pass  # 易得客不支持，不影响下载
+            # https://www.amazon.com
+            # page = Chromium()
+            # 新建标签页进入
+            # 定义星级列表
+            stars = ["5 star only", "4 star only", "3 star only", "2 star only", "1 star only"]
+            star_names = ["5星", "4星", "3星", "2星", "1星"]
+            # 存储所有评论
+            all_comments = {}
+
+            page = page.new_tab("https://www.amazon.com")
             time.sleep(3)
-            page.ele(f'x://div[@data-asin="{experts}"]//a',timeout=30).click()
-            time.sleep(3)
-            # 滚动页面至中间指定评论元素
-            ele = page.ele('x://div[text()="See more reviews"]')
-            page.scroll.to_see(ele)
-            time.sleep(3)
-            # 定位点击“评论”一级页面
-            page.ele('x://div[text()="See more reviews"]').click()
-            time.sleep(3)
-            # 具体评论页面
-            page.ele('x://span[text() = "All stars"]').click()
-            time.sleep(3)
-            # 指定星级评论
-            # page.ele('x://ul[@role="listbox"]/li/a[text()="5 star only"]').click()
-            for star, star_name in zip(stars, star_names):
-                print(f"\n正在处理 {star_name}...")
-                page.ele(f'x://ul[@role="listbox"]/li/a[text()="{star}"]').click()
+            page.ele('x://div/input[@placeholder="Search Amazon"]',timeout=25).click()
+            for experts in self.experts:
+                print(f"\n正在处理商品: {experts}")
+                all_comments[experts] = {}
+                page.ele('x://div/input[@placeholder="Search Amazon"]',timeout=30).input(f'{experts}\n',clear=True)
                 time.sleep(3)
-                # 定位加载评论按钮
-                while True:
-                    # 每次循环重新定位按钮（避免元素失效）
-                    comment_button = page.ele('x://span/a[text()="Show 10 more reviews"]',timeout=0)
-                    # comment_button.scroll.to_see()
-                    if not comment_button:
-                        print("没有更多评论了")
-                        break
-                    else:
-                        comment_button.click()
-                        time.sleep(2)  # 等待新评论加载
-                        print(f"点击加载更多{star_name}评论...")
-
-                reviews = []
-                for elem in page.eles('x://span[@data-hook="review-body"]/span'):
-                    text = elem.text.strip()
-                    if text:
-                        reviews.append(text)
-                all_comments[experts][star_name] = reviews
-
-                page.ele(f'x://span[text() = "{star}"]').click()
+                page.ele(f'x://div[@data-asin="{experts}"]//a',timeout=30).click()
                 time.sleep(3)
+                # 滚动页面至中间指定评论元素
+                ele = page.ele('x://div[text()="See more reviews"]')
+                page.scroll.to_see(ele)
+                time.sleep(3)
+                # 定位点击“评论”一级页面
+                page.ele('x://div[text()="See more reviews"]').click()
+                time.sleep(3)
+                # 具体评论页面
+                page.ele('x://span[text() = "All stars"]').click()
+                time.sleep(3)
+                # 指定星级评论
+                # page.ele('x://ul[@role="listbox"]/li/a[text()="5 star only"]').click()
+                for star, star_name in zip(stars, star_names):
+                    print(f"\n正在处理 {star_name}...")
+                    page.ele(f'x://ul[@role="listbox"]/li/a[text()="{star}"]').click()
+                    time.sleep(3)
+                    # 定位加载评论按钮
+                    while True:
+                        # 每次循环重新定位按钮（避免元素失效）
+                        comment_button = page.ele('x://span/a[text()="Show 10 more reviews"]',timeout=0)
+                        # comment_button.scroll.to_see()
+                        if not comment_button:
+                            print("没有更多评论了")
+                            break
+                        else:
+                            comment_button.click()
+                            time.sleep(2)  # 等待新评论加载
+                            print(f"点击加载更多{star_name}评论...")
 
-                # print(f"共提取 {len(reviews)} 条评论")
-                # print(f"评论: {reviews}")
-                print(f"{star_name} 共提取 {len(reviews)} 条评论")
-                print("-" * 50)  # 分隔线
-            # 重新定位回到搜索框并点击
-            page.ele('x://div/input[@placeholder="Search Amazon"]', timeout=25).click()
+                    reviews = []
+                    for elem in page.eles('x://span[@data-hook="review-body"]/span'):
+                        text = elem.text.strip()
+                        if text:
+                            reviews.append(text)
+                    all_comments[experts][star_name] = reviews
 
-            # 打印所有评论
-            for star_name, reviews in all_comments[experts].items():
-                print(f"\n{'=' * 50}")
-                print(f"{star_name} 评论 (共 {len(reviews)} 条)")
-                print(f"{'=' * 50}")
-                for i, review in enumerate(reviews, 1):
-                    print(f"{i}. {review}")
-        # 调用excel_files,处理all_comments,导出为表格
-        self.excel_files(all_comments)
-        return all_comments
+                    page.ele(f'x://span[text() = "{star}"]').click()
+                    time.sleep(3)
+
+                    # print(f"共提取 {len(reviews)} 条评论")
+                    # print(f"评论: {reviews}")
+                    print(f"{star_name} 共提取 {len(reviews)} 条评论")
+                    print("-" * 50)  # 分隔线
+                # 重新定位回到搜索框并点击
+                page.ele('x://div/input[@placeholder="Search Amazon"]', timeout=25).click()
+
+                # 打印所有评论
+                for star_name, reviews in all_comments[experts].items():
+                    print(f"\n{'=' * 50}")
+                    print(f"{star_name} 评论 (共 {len(reviews)} 条)")
+                    print(f"{'=' * 50}")
+                    for i, review in enumerate(reviews, 1):
+                        print(f"{i}. {review}")
+            # 调用excel_files,处理all_comments,导出为表格
+            self.excel_files(all_comments)
+            return all_comments
 
     def excel_files(slef,all_comments):
         """所有星级评论放在同一个工作表中"""
@@ -290,26 +329,7 @@ class Comment:
 
     # 启动
     def run(self):
-        sp = Specification(self.username, self.password)  # 其他易得客
-        time.sleep(5)
-        sp.YidekeLogin()
-        time.sleep(3)
-        # self.visit_shop(self.ip, self.port)
-        self.run_edecker_automation(self.ip)  # 访问全部店铺
-        time.sleep(4)
-        for index, ip in enumerate(self.ip):
-            self.kill_edecker_on_port(self.port[index])  # 启动前清理占用端口的 edecker
-            time.sleep(1)
-            self.start_edecker(self.ip[index], self.port[index])  # 启动指定易得客浏览器
-            # time.sleep(2)
-            self.wait_for_port(self.port[index])
-            page = ChromiumPage("127.0.0.1:" + str(self.port[index]))  # 接管浏览器
-            # time.sleep(2)
-            try:
-                page.set.window.max()
-            except RuntimeError:
-                pass  # 易得客不支持，不影响下载
-            self.main(page)
+        self.main()
 
 
 
