@@ -105,16 +105,23 @@ class Comment:
         """
         browser = Chromium(port)
         tab = browser.latest_tab
-        buttons = tab.eles("t:button@@text()=访问")
-        for btn in buttons:
-            btn.click()
-            time.sleep(3)
+        # buttons = tab.eles("t:button@@text()=访问")
+        # for btn in buttons:
+        #     btn.click()
+        #     time.sleep(3)
         time.sleep(2)
         for ip in ips:
-            if tab.ele('x://div[@class="platform-region"]/span[text()="美国"]'):
-                tab.ele(f'x://div[text()="{ip}"]//following-sibling::button').click()
+            btn = tab.ele(
+                f'x://div[contains(@class,"platform-region")]//span[normalize-space()="美国"]'
+                f'/ancestor::div[contains(@class,"shop-item")]'
+                f'[.//div[contains(@class,"text") and normalize-space()="{ip}"]]'
+                f'//button[normalize-space()="访问"]',
+                timeout=30
+            )
+            if btn:
+                btn.click()
             else:
-                continue
+                print(f"未找到美国店铺，IP={ip}")
             time.sleep(3)
         self.kill_edecker(browser.process_id)
         time.sleep(1)

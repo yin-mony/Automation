@@ -49,12 +49,12 @@ class TikTok:
         return result
 
 
-    def main(self):
+    def main(self, keyword_list=None):
         login = TikTokPage(self.page)
         login.run()
         data = []
         # 关键词表格文件(素材文件)
-        keyword_list = self.key_words()
+        keyword_list = keyword_list or self.key_words()
         for keyword in keyword_list:
             print(keyword)
             # 遍历以提取存放的关键词列表
