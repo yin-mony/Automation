@@ -18,6 +18,7 @@
 | [`商品列表单下载与请款单汇总对比/`](./商品列表单下载与请款单汇总对比/) | 赛狐 ERP 下载采购单与商品列表单，按 SKU 对比采购单价并输出高亮 Excel | [README](./商品列表单下载与请款单汇总对比/README.md) |
 | [`亚马逊评论分析/`](./亚马逊评论分析/) | 易得客抓取亚马逊评论并导出 Excel，DeepSeek 生成分析报告；双 GUI 可打包 exe | [README](./亚马逊评论分析/README.md) |
 | [`TikTok Shop关键词竞品数据采集/`](./TikTok%20Shop关键词竞品数据采集/) | DrissionPage 登录 TikTok Shop，按 Excel 关键词抓取竞品并分 sheet 写回 | [README](./TikTok Shop关键词竞品数据采集/README.md) |
+| [`titok_shop关键词数据采集优化版/`](./titok_shop关键词数据采集优化版/) | TikTok Shop 关键词搜索与商品链接采集，支持人工验证码等待与刷新重试 | [README](./titok_shop关键词数据采集优化版/README.md) |
 | [`产品主要流量词监控/`](./产品主要流量词监控/) | 易得客 + 卖家精灵关键词反查，解析自然排名并通过企业微信机器人告警 | [README](./产品主要流量词监控/README.md) |
 | [`新版-赛狐erp支持变体开发/`](./新版-赛狐erp支持变体开发/) | 赛狐 ERP 纯新品 / 横向变体双模式自动化，Tkinter GUI 与 exe 打包 | [README](./新版-赛狐erp支持变体开发/README.md) |
 | [`自动发送offer/`](./自动发送offer/) | 企业微信入职审批监听，审批通过后自动发送 Offer；含回调部署示例 | [README](./自动发送offer/README.md) |
