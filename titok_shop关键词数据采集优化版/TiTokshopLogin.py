@@ -31,14 +31,139 @@ class TikTokPage:
         time.sleep(3)
 
     # 滑动验证码（检测并处理，无验证码则直接返回）
-    def img_code(self, page=None, timeout=180):
+    def img_code(self, page=None, timeout=180, auto_solve=False):
         page = page or self.page
         if not self.has_img_code(page):
             return True
-        print('检测到滑动验证码，开始自动识别...')
-        if self._solve_img_code(page):
+        if self.try_close_captcha(page):
             return True
+        if auto_solve:
+            print('检测到滑动验证码，开始自动识别...')
+            if self._solve_img_code(page):
+                return True
+            print('自动识别失败，请手动完成滑动验证码...')
+        else:
+            print('检测到滑动验证码，请在浏览器中手动完成滑动...')
         return self._wait_manual_img_code(page, timeout)
+
+    def wait_manual_captcha(self, page=None, timeout=180):
+        """仅等待人工滑动验证码，不进行自动识别。"""
+        return self.img_code(page=page, timeout=timeout, auto_solve=False)
+
+    def _find_captcha_close_button(self, page):
+        container_selectors = (
+            'css:#captcha_container',
+            'css:.captcha_verify_container',
+            'css:.captcha-disable-scroll',
+        )
+        close_selectors = (
+            '[aria-label="Close"]',
+            '[aria-label="close"]',
+            '[aria-label="关闭"]',
+            '[data-testid="close"]',
+            '.secsdk-captcha-close',
+            '.secsdk-captcha-close-btn',
+            '.captcha_verify_close',
+            '.captcha-close',
+            '[class*="close-btn"]',
+            '[class*="closeBtn"]',
+            '[class*="CloseIcon"]',
+            '[class*="close-icon"]',
+            '[class*="close_icon"]',
+        )
+
+        for container in container_selectors:
+            for close_sel in close_selectors:
+                try:
+                    btn = page.ele(f'{container} {close_sel}', timeout=0.3)
+                    if btn:
+                        return btn
+                except Exception:
+                    pass
+
+        xpath_selectors = (
+            'x://div[@id="captcha_container"]//*[@aria-label="Close" or @aria-label="close" or @aria-label="关闭"]',
+            'x://div[contains(@class,"captcha_verify_container")]//*[@aria-label="Close" or @aria-label="close" or @aria-label="关闭"]',
+            'x://div[@id="captcha_container"]//*[contains(@class,"close") and not(contains(@class,"closed"))]',
+            'x://div[contains(@class,"captcha_verify_container")]//*[contains(@class,"close") and not(contains(@class,"closed"))]',
+        )
+        for selector in xpath_selectors:
+            try:
+                btn = page.ele(selector, timeout=0.3)
+                if btn:
+                    return btn
+            except Exception:
+                pass
+
+        try:
+            clicked = page.run_js('''
+                const root = document.querySelector('#captcha_container')
+                    || document.querySelector('.captcha_verify_container')
+                    || document.querySelector('.captcha-disable-scroll');
+                if (!root) return false;
+
+                const isVisible = (el) => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                };
+
+                const tryClick = (el) => {
+                    if (!el || !isVisible(el)) return false;
+                    el.click();
+                    return true;
+                };
+
+                for (const el of root.querySelectorAll('[aria-label]')) {
+                    const label = (el.getAttribute('aria-label') || '').toLowerCase();
+                    if (label.includes('close') || label.includes('关闭')) {
+                        if (tryClick(el)) return true;
+                    }
+                }
+
+                for (const el of root.querySelectorAll('[class*="close" i], [class*="Close"]')) {
+                    if (tryClick(el)) return true;
+                }
+
+                for (const svg of root.querySelectorAll('svg')) {
+                    const parent = svg.closest('button, [role="button"], div, span');
+                    if (parent && isVisible(parent) && parent.getBoundingClientRect().width <= 80) {
+                        if (tryClick(parent)) return true;
+                    }
+                }
+                return false;
+            ''')
+            if clicked:
+                return 'js_clicked'
+        except Exception:
+            pass
+
+        return None
+
+    def try_close_captcha(self, page=None):
+        """检测验证码弹窗关闭按钮，存在则点击关闭。"""
+        page = page or self.page
+        if not self.has_img_code(page):
+            return True
+
+        close_btn = self._find_captcha_close_button(page)
+        if not close_btn:
+            return False
+
+        print('检测到验证码关闭按钮，正在点击关闭...')
+        if close_btn != 'js_clicked':
+            try:
+                close_btn.click()
+            except Exception:
+                try:
+                    close_btn.click(by_js=True)
+                except Exception:
+                    return False
+
+        time.sleep(1.5)
+        if not self.has_img_code(page):
+            print('验证码已关闭，继续执行')
+            return True
+        return False
 
     # 自动识别验证码
     def _solve_img_code(self, page, max_attempts=5):
@@ -94,7 +219,6 @@ class TikTokPage:
 
     # 等待人工完成验证码
     def _wait_manual_img_code(self, page, timeout=180):
-        print('自动识别失败，请手动完成滑动验证码...')
         start_time = time.time()
         while time.time() - start_time < timeout:
             if not self.has_img_code(page):
@@ -131,6 +255,14 @@ class TikTokPage:
     # 检查页面是否存在验证码（页面上还有没有验证码）
     def has_img_code(self, page=None):
         page = page or self.page
+        try:
+            if page.ele('css:#captcha_container', timeout=0.5):
+                return True
+            if page.ele('css:.captcha_verify_container', timeout=0.5):
+                return True
+        except Exception:
+            pass
+
         title = ''
         html = ''
         try:
@@ -148,6 +280,19 @@ class TikTokPage:
             'drag the puzzle piece into place',
         )
         return any(k in title or k in html for k in keywords)
+
+    def is_captcha_response(self, json_data):
+        if not isinstance(json_data, dict):
+            return False
+
+        scripts = json_data.get('application_json_scripts', [])
+        for script in scripts:
+            if script.get('id') != 'captcha-config':
+                continue
+            verify_data = script.get('data', {}).get('verify_data', {})
+            if verify_data.get('code') == '10000' or verify_data.get('type') == 'verify':
+                return True
+        return False
 
     # 验证码图片匹配（计算拼图块在背景图中的位置）
     def img_code_df(self):
