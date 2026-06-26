@@ -20,6 +20,11 @@ node_modules/
 # 含密钥的本地配置（请使用 *.example.py）
 自动发送offer/config.py
 
+# 1688 OAuth 本地 token / 证书（勿提交）
+1688商品链接数据采集/.1688_token.json
+1688商品链接数据采集/.oauth_certs/
+1688商品链接数据采集/chrome_profiles/
+
 # PyInstaller
 build/
 dist/
@@ -32,3 +37,15 @@ dist/
 *.swp
 .DS_Store
 Thumbs.db
+
+# 调试日志与浏览器运行时目录
+debug*.log
+**/chrome_profiles/
+**/img_code/
+
+# 本地测试数据与生成产物
+数据汇总需求/test.xlsx
+数据汇总需求/_docx_images/
+1688商品链接数据采集/规格汇总.xlsx
+日报生成器/工作日报-*.txt
+下载美国站Transaction报告/6.0
