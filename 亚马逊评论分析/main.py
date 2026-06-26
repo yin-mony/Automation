@@ -1,3 +1,10 @@
+"""
+亚马逊评论分析 — 评论下载核心逻辑
+
+通过易得客启动店铺浏览器，在 Amazon 搜索 ASIN，
+按 1～5 星展开评论并加载全部页，导出为「亚马逊评论.xlsx」。
+"""
+
 import time
 import threading
 from DrissionPage import ChromiumPage,Chromium
@@ -15,7 +22,10 @@ from dateutil.relativedelta import relativedelta
 
 
 class Comment:
-    def __init__(self,config):
+    """易得客 + Amazon 评论抓取与 Excel 导出。"""
+
+    def __init__(self, config):
+        """从 config 读取账号、店铺 IP/端口、ASIN 列表与保存目录。"""
         self.username = config["username"]
         self.password = config["password"]
         # 店铺IP
@@ -46,6 +56,7 @@ class Comment:
         os._exit(0)  # 立即终止程序
 
     def kill_edecker(self, exclude_pid):
+        """结束除指定 PID 外的所有 edecker 进程。"""
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 pid = proc.info['pid']
@@ -115,6 +126,7 @@ class Comment:
         #     time.sleep(3)
         time.sleep(2)
         for ip in ips:
+            # 在易得客店铺列表中按 IP 匹配「美国」店铺并点击「访问」
             tab.ele(
                 f'x://div[contains(@class,"platform-region")]//span[normalize-space()="美国"]'
                 f'/ancestor::div[contains(@class,"shop-item")]'
@@ -123,12 +135,13 @@ class Comment:
                 timeout=30
             ).click()
             time.sleep(3)
-        self.kill_edecker(browser.process_id)
+        self.kill_edecker(browser.process_id)  # 关闭易得客管理窗口，仅保留店铺浏览器
         time.sleep(1)
         tab.refresh()
         time.sleep(3)
 
     def start_edecker(self, ip: str, port: int):
+        """按店铺 IP 匹配 eDecker profile，以指定调试端口启动浏览器。"""
         import subprocess
         from pathlib import Path
 
@@ -146,7 +159,7 @@ class Comment:
             raise FileNotFoundError(f"找不到 profiles 目录: {profiles_path}")
 
         ip_dot = ip
-        ip_underline = ip.replace('.', '_')
+        ip_underline = ip.replace('.', '_')  # profile 目录名可能用下划线表示 IP
 
         all_profiles = list(profiles_path.iterdir())
         print("所有 profile:")
@@ -161,7 +174,7 @@ class Comment:
         if not candidates:
             raise Exception(f"未找到 IP={ip} 的 profile")
 
-        latest = max(candidates, key=lambda p: p.stat().st_mtime)
+        latest = max(candidates, key=lambda p: p.stat().st_mtime)  # 取最近使用的 profile
 
         print("使用 profile:", latest)
 
@@ -169,9 +182,8 @@ class Comment:
             str(exe_path),
             f'--user-data-dir={latest}',
             '--no-sandbox',
-            f'--remote-debugging-port={port}'
+            f'--remote-debugging-port={port}'  # DrissionPage 接管用
         ]
-
         print("启动命令:")
         print(" ".join(cmd))
 
@@ -183,6 +195,7 @@ class Comment:
             raise
 
     def find_seller_tab(self, port, timeout=90):
+        """在指定调试端口的浏览器中查找卖家后台标签页。"""
         browser = Chromium(port)
         deadline = time.time() + timeout
 
@@ -202,15 +215,17 @@ class Comment:
 
         raise RuntimeError(f"未找到 TikTok seller 后台标签页，端口={port}")
 
-    # 自动化流程操作
+    # 自动化流程：登录易得客 → 打开 Amazon → 按 ASIN/星级抓评论
     def main(self):
-        sp = Specification(self.username, self.password)  # 其他易得客
+        """逐个 ASIN 抓取 1～5 星评论，汇总后调用 excel_files 导出。"""
+        sp = Specification(self.username, self.password)  # 易得客登录
         time.sleep(5)
         sp.YidekeLogin()
         time.sleep(3)
         # self.visit_shop(self.ip, self.port)
         self.run_edecker_automation(self.ip)  # 访问全部店铺
         time.sleep(4)
+        # 按店铺 IP 逐个启动浏览器并采集评论
         for index, ip in enumerate(self.ip):
             self.kill_edecker_on_port(self.port[index])  # 启动前清理占用端口的 edecker
             time.sleep(1)
@@ -226,7 +241,7 @@ class Comment:
             # https://www.amazon.com
             # page = Chromium()
             # 新建标签页进入
-            # 定义星级列表
+            # 定义星级列表（Amazon 评论页下拉选项文案）
             stars = ["5 star only", "4 star only", "3 star only", "2 star only", "1 star only"]
             star_names = ["5星", "4星", "3星", "2星", "1星"]
             # 存储所有评论
@@ -240,6 +255,7 @@ class Comment:
                 all_comments[experts] = {}
                 page.ele('x://div/input[@placeholder="Search Amazon"]',timeout=30).input(f'{experts}\n',clear=True)
                 time.sleep(3)
+                # 进入商品详情 → See more reviews → All stars 筛选
                 page.ele(f'x://div[@data-asin="{experts}"]//a',timeout=30).click()
                 time.sleep(3)
                 # 滚动页面至中间指定评论元素
@@ -258,7 +274,7 @@ class Comment:
                     print(f"\n正在处理 {star_name}...")
                     page.ele(f'x://ul[@role="listbox"]/li/a[text()="{star}"]').click()
                     time.sleep(3)
-                    # 定位加载评论按钮
+                    # 循环点击「Show 10 more reviews」直到无更多评论
                     while True:
                         # 每次循环重新定位按钮（避免元素失效）
                         comment_button = page.ele('x://span/a[text()="Show 10 more reviews"]',timeout=0)
@@ -272,12 +288,14 @@ class Comment:
                             print(f"点击加载更多{star_name}评论...")
 
                     reviews = []
+                    # 提取当前星级下页面全部评论正文
                     for elem in page.eles('x://span[@data-hook="review-body"]/span'):
                         text = elem.text.strip()
                         if text:
                             reviews.append(text)
                     all_comments[experts][star_name] = reviews
 
+                    # 重新打开星级下拉，准备切换下一档
                     page.ele(f'x://span[text() = "{star}"]').click()
                     time.sleep(3)
 
@@ -295,12 +313,12 @@ class Comment:
                     print(f"{'=' * 50}")
                     for i, review in enumerate(reviews, 1):
                         print(f"{i}. {review}")
-            # 调用excel_files,处理all_comments,导出为表格
+            # 导出为 Excel
             self.excel_files(all_comments)
             return all_comments
 
-    def excel_files(slef,all_comments):
-        """所有星级评论放在同一个工作表中"""
+    def excel_files(slef, all_comments):
+        """将 all_comments 展平为行，写入 {file_path}/亚马逊评论.xlsx。"""
         # 转换数据格式
         data = []
         for asin, star_comments in all_comments.items():  # asin 就是商品ID
@@ -329,11 +347,12 @@ class Comment:
 
     # 启动
     def run(self):
+        """入口：执行 main()。"""
         self.main()
 
 
-
 if __name__ == '__main__':
+    # CLI 入口：config 仅在此处定义
     config = {
         "username": "19944318805",
         "password": "DY0924DY0924",

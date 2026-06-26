@@ -28,43 +28,53 @@ DEFAULT_CONFIG = {
 
 
 def _default_shop_ip_text():
+    """将默认 config 中的 IP 列表格式化为界面初始文本。"""
     return ", ".join(DEFAULT_CONFIG["ip"])
 
 
 def _default_shop_port_text():
+    """将默认 config 中的端口列表格式化为界面初始文本。"""
     return ", ".join(str(p) for p in DEFAULT_CONFIG["port"])
 
 
 def _default_experts_text():
+    """将默认 ASIN 列表格式化为多行文本框初始内容。"""
     return ",\n".join(DEFAULT_CONFIG["experts"])
 
 
 def get_app_base_dir():
+    """打包为 exe 时取 exe 所在目录，否则取本脚本目录。"""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def get_log_file_path():
+    """日志文件路径：{应用目录}/logs/亚马逊评论下载.log。"""
     log_dir = get_app_base_dir() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / "亚马逊评论下载.log"
 
 
 class QueueHandler(logging.Handler):
+    """将 logging 记录写入队列，供界面定时刷新显示。"""
+
     def __init__(self, log_queue):
         super().__init__()
         self.log_queue = log_queue
 
     def emit(self, record):
+        """将单条日志记录放入队列。"""
         self.log_queue.put(self.format(record))
 
 
 def _parse_list_csv(text):
+    """逗号/换行分隔文本拆成列表。"""
     return [x.strip() for x in text.replace("\n", ",").split(",") if x.strip()]
 
 
 def _parse_experts_block(text):
+    """解析 ASIN 多行/逗号混排输入。"""
     out = []
     for line in text.splitlines():
         for part in line.split(","):
@@ -75,21 +85,23 @@ def _parse_experts_block(text):
 
 
 _IPV4_OCTET = r"(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
-IPV4_PATTERN = re.compile(rf"^{_IPV4_OCTET}(\.{_IPV4_OCTET}){{3}}$")
+IPV4_PATTERN = re.compile(rf"^{_IPV4_OCTET}(\.{_IPV4_OCTET}){{3}}$")  # 单段 IPv4 校验
 
 
 def is_valid_ipv4(token: str) -> bool:
+    """校验是否为合法 IPv4 字符串。"""
     return bool(IPV4_PATTERN.fullmatch((token or "").strip()))
 
 
 def parse_shop_ipv4_list(text: str):
+    """从店铺 IP 输入框解析 IPv4 列表。"""
     return [x.strip() for x in text.replace("\n", ",").split(",") if x.strip()]
 
-
-_IP_FIELD_CHARS = re.compile(r"^[\d., ]*$")
+_IP_FIELD_CHARS = re.compile(r"^[\d., ]*$")  # IP 输入框允许的字符集
 
 
 def validate_shop_ip_field_typing(proposed: str) -> bool:
+    """IP 输入框按键校验：仅允许数字、点、逗号与空格。"""
     if proposed == "":
         return True
     if any(ord(c) > 127 for c in proposed):
@@ -98,13 +110,17 @@ def validate_shop_ip_field_typing(proposed: str) -> bool:
 
 
 def normalize_shop_ip_punctuation(s: str) -> str:
+    """将全角句号等替换为英文点，便于解析 IP。"""
     for full in ("\uff0e", "\u3002", "\uff61"):
         s = s.replace(full, ".")
     return s
 
 
 class CommentDownloadApp:
+    """评论下载 GUI：配置表单、后台线程、日志与强制停止。"""
+
     def __init__(self, root):
+        """初始化窗口、配置变量、日志与界面。"""
         self.root = root
         self.root.title("亚马逊评论下载工具")
         self.root.geometry("900x680")
@@ -133,6 +149,7 @@ class CommentDownloadApp:
         logging.info("界面已就绪，填写配置后点击「开始下载评论」。")
 
     def _build_ui(self):
+        """构建配置表单、操作按钮与日志区。"""
         outer = ttk.Frame(self.root, padding=12)
         outer.pack(fill="both", expand=True)
 
@@ -235,9 +252,11 @@ class CommentDownloadApp:
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     def _shop_ip_focus_out(self, _evt=None):
+        """失焦时规范化店铺 IP 标点。"""
         self.shop_ip.set(normalize_shop_ip_punctuation(self.shop_ip.get()))
 
     def _shop_ip_paste(self, event):
+        """粘贴时过滤非法字符并规范化 IP 文本。"""
         try:
             clip = self.root.clipboard_get()
         except tk.TclError:
@@ -256,11 +275,13 @@ class CommentDownloadApp:
         return "break"
 
     def select_file_path(self):
+        """选择评论 Excel 保存目录。"""
         path = filedialog.askdirectory(title="选择评论 Excel 保存目录")
         if path:
             self.file_path.set(path)
 
     def setup_logging(self):
+        """配置队列日志、滚动文件日志，并将 stdout 重定向到 logging。"""
         queue_handler = QueueHandler(self.log_queue)
         queue_handler.setLevel(logging.INFO)
         queue_handler.setFormatter(
@@ -289,13 +310,16 @@ class CommentDownloadApp:
         sys.stdout = self
 
     def write(self, text):
+        """兼容 sys.stdout 重定向：print 内容写入 logging。"""
         if text and text.strip():
             logging.info(text.rstrip())
 
     def flush(self):
+        """stdout 重定向接口占位，无缓冲需刷新。"""
         pass
 
     def process_log_queue(self):
+        """定时从队列取日志写入文本框。"""
         try:
             while True:
                 msg = self.log_queue.get_nowait()
@@ -306,10 +330,12 @@ class CommentDownloadApp:
             self.root.after(100, self.process_log_queue)
 
     def _insert_log(self, message):
+        """追加日志并滚动到底部。"""
         self.log_text.insert(tk.END, message)
         self.log_text.see(tk.END)
 
     def _set_running(self, running):
+        """切换运行中 UI 状态（按钮、状态栏）。"""
         self.is_running = running
         if running:
             self.run_btn.config(state=tk.DISABLED)
@@ -322,6 +348,7 @@ class CommentDownloadApp:
             self.comment_instance = None
 
     def _build_config(self):
+        """校验界面输入，组装 main.Comment 所需的 config 字典。"""
         self._shop_ip_focus_out()
         ips = parse_shop_ipv4_list(self.shop_ip.get())
         ports_raw = _parse_list_csv(self.shop_port.get())
@@ -361,6 +388,7 @@ class CommentDownloadApp:
         }
 
     def save_config(self):
+        """将当前界面配置写入 comment_download_gui_config.txt。"""
         cfg = get_app_base_dir() / "comment_download_gui_config.txt"
         try:
             experts = self.asin_text.get("1.0", tk.END).strip()
@@ -376,6 +404,7 @@ class CommentDownloadApp:
             logging.warning("保存配置失败: %s", e)
 
     def load_config(self):
+        """启动时从 comment_download_gui_config.txt 恢复上次配置。"""
         cfg = get_app_base_dir() / "comment_download_gui_config.txt"
         if not cfg.exists():
             logging.info("未找到本地配置，使用 main.py 默认 config 值。")
@@ -404,6 +433,7 @@ class CommentDownloadApp:
             logging.warning("加载配置失败，保留 main.py 默认值: %s", e)
 
     def run_download(self):
+        """校验配置后在后台线程执行 Comment(config).run()。"""
         if self.is_running:
             messagebox.showwarning("提示", "任务正在运行中，请稍候。")
             return
@@ -419,6 +449,7 @@ class CommentDownloadApp:
         self._set_running(True)
 
         def target():
+            """后台线程：实例化 Comment 并执行 run()。"""
             try:
                 logging.info("=" * 50)
                 logging.info("开始下载：Comment(config).run()")
@@ -445,6 +476,7 @@ class CommentDownloadApp:
         self.current_thread.start()
 
     def force_stop(self):
+        """调用 Comment.stop_program() 终止 Chrome 并强制退出。"""
         if not self.is_running:
             return
         if not messagebox.askyesno(
@@ -463,6 +495,7 @@ class CommentDownloadApp:
             logging.warning("任务实例尚未创建，仅标记停止。")
 
     def on_finish(self, success, message):
+        """任务结束：恢复 UI 并弹窗提示。"""
         self._set_running(False)
         if success:
             messagebox.showinfo("完成", message)
@@ -471,10 +504,12 @@ class CommentDownloadApp:
 
 
 def main():
+    """启动 Tk 应用。"""
     root = tk.Tk()
     CommentDownloadApp(root)
     root.mainloop()
 
 
+# GUI 入口
 if __name__ == "__main__":
     main()
