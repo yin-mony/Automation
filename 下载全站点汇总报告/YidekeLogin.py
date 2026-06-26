@@ -3,6 +3,7 @@ from pathlib import Path
 import psutil
 import os
 import subprocess
+import socket
 from pywinauto.application import Application
 from DrissionPage import ChromiumPage,Chromium
 class Specification:
@@ -17,7 +18,7 @@ class Specification:
                 proc.kill()
 
         time.sleep(1)
-        subprocess.Popen([
+        self.edecker_process = subprocess.Popen([
             exe_path,
             "--remote-debugging-port=9222",
             f"--user-data-dir={Path(os.environ['LOCALAPPDATA']) / 'eDecker6' / 'User Data'}"
@@ -37,6 +38,7 @@ class Specification:
             for path in root.rglob("edecker.exe"):
                 return str(path)
         raise FileNotFoundError("edecker.exe not found")
+
     def YidekeLogin(self, max_retries=3, retry_interval=2):
         last_error = None
         for attempt in range(1, max_retries + 1):
@@ -47,15 +49,38 @@ class Specification:
                     except Exception as e_refresh:
                         print(f"重试前刷新浏览器失败，继续尝试登录: {e_refresh}")
 
+                deadline = time.time() + 60
+                while time.time() < deadline:
+                    try:
+                        with socket.create_connection(("127.0.0.1", 9222), timeout=2):
+                            break
+                    except OSError:
+                        time.sleep(1)
+                else:
+                    raise RuntimeError("等待易得客调试端口 127.0.0.1:9222 超时")
+
                 page = ChromiumPage("127.0.0.1:9222")
-                page.ele('x://span[text()="登录"]').click()
+                login_ele = page.ele('x://span[text()="登录"]', timeout=60)
+                if not login_ele:
+                    raise RuntimeError(f'在易得客浏览器当前页面未找到 XPath: x://span[text()="登录"]，当前URL: {page.url}')
+                login_ele.click()
                 time.sleep(5)
 
-                win_app = Application(backend='win32').connect(title_re="易得客浏览器")
-                hwnd = win_app.window(title_re="易得客浏览器").handle
-                app = Application(backend='uia').connect(handle=hwnd)
-                dlg = app.window(handle=hwnd)
-                dlg.wait("visible ready", timeout=15)
+                deadline = time.time() + 30
+                last_window_error = None
+                while time.time() < deadline:
+                    try:
+                        win_app = Application(backend='win32').connect(title_re="易得客浏览器", visible_only=False)
+                        hwnd = win_app.window(title_re="易得客浏览器").handle
+                        app = Application(backend='uia').connect(handle=hwnd)
+                        dlg = app.window(handle=hwnd)
+                        dlg.wait("visible ready", timeout=15)
+                        break
+                    except Exception as e:
+                        last_window_error = e
+                        time.sleep(1)
+                else:
+                    raise RuntimeError("未找到标题精确匹配“易得客浏览器”的登录窗口") from last_window_error
                 # dlg.print_control_identifiers()
 
                 phone_label = dlg.child_window(title="手机号", control_type="Text")

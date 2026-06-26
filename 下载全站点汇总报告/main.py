@@ -1,3 +1,10 @@
+"""
+下载全站点汇总报告
+
+通过易得客登录 Amazon 卖家后台，按站点（美/加/墨/巴）在 Reports Repository
+申请当月 SELLER_SUMMARY_DATE_RANGE（Summary）汇总报告。
+"""
+
 import time
 import socket
 import psutil
@@ -14,7 +21,10 @@ from dateutil.relativedelta import relativedelta
 
 
 class TestPage:
-    def __init__(self,config):
+    """易得客 + Amazon 卖家后台：按站点申请 Summary 月度汇总报告。"""
+
+    def __init__(self, config):
+        """从 config 读取账号、店铺 IP/端口；站点列表默认四国。"""
         self.username = config["username"]
         self.password = config["password"]
         # 店铺IP
@@ -24,9 +34,8 @@ class TestPage:
         ports = config["port"]
         self.port = ports if isinstance(ports, list) else [ports]
         # 站点
-        datas = ["United States","Canada","Mexico","Brazil"]
+        datas = ["United States", "Canada", "Mexico", "Brazil"]
         self.data = datas if isinstance(datas, list) else [datas]
-
 
 
     def stop_program(self):
@@ -48,6 +57,7 @@ class TestPage:
         os._exit(0)  # 立即终止程序
 
     def kill_edecker(self, exclude_pid):
+        """结束除指定 PID 外的所有 edecker 进程。"""
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 pid = proc.info['pid']
@@ -131,6 +141,7 @@ class TestPage:
         time.sleep(3)
 
     def start_edecker(self, ip: str, port: int):
+        """按店铺 IP 匹配 eDecker profile，以指定调试端口启动浏览器。"""
         import subprocess
         from pathlib import Path
 
@@ -171,9 +182,8 @@ class TestPage:
             str(exe_path),
             f'--user-data-dir={latest}',
             '--no-sandbox',
-            f'--remote-debugging-port={port}'
+            f'--remote-debugging-port={port}'  # DrissionPage 接管用
         ]
-
         print("启动命令:")
         print(" ".join(cmd))
 
@@ -185,6 +195,7 @@ class TestPage:
             raise
 
     def find_seller_tab(self, port, timeout=90):
+        """在指定调试端口的浏览器中查找 Amazon 卖家后台标签页。"""
         browser = Chromium(port)
         deadline = time.time() + timeout
 
@@ -206,7 +217,8 @@ class TestPage:
 
 
     def main(self):
-        sp = Specification(self.username, self.password)  # 其他易得客
+        """完整自动化：登录易得客 → 启动店铺 → 逐站点申请 Summary 报告。"""
+        sp = Specification(self.username, self.password)  # 易得客登录
         time.sleep(5)
         sp.YidekeLogin()
         time.sleep(3)
@@ -239,9 +251,16 @@ class TestPage:
             }
 
             month_cn = month_map[month]
+            # 切换后台显示语言为 English
+            page.ele('x://div[@aria-label="语言"] | //div[@aria-label="Language"]').click()
+            time.sleep(1.5)
+            # //div[text()="English"]
+            page.ele('x://div[text()="English"]').click()
+            time.sleep(5)
 
-            # 站点切换
+            # 站点切换：四国分别申请 Summary 报告（各站点表单字段数不同）
             for data in self.data:
+
                 page.ele('x://span[text()="KORCCI LLC"]').click()
                 time.sleep(0.78)
                 page.ele('x://*[text()="See all"][1]').click()
@@ -249,7 +268,7 @@ class TestPage:
                 page.ele(f'x://span[contains(text(), "{data}")]',timeout=20).click()
                 time.sleep(0.78)
                 page.ele('x://kat-button[@label="Select account"]',timeout=20).click()
-                # 菜单栏
+                # 汉堡菜单（shadow DOM）进入 Payments → Reports Repository
                 menu_host = page.ele('x://*[@data-test-tag="hamburger-menu"]', timeout=30)
                 menu = menu_host.shadow_root
                 # print(11111)
@@ -262,7 +281,7 @@ class TestPage:
                 time.sleep(3)
 
                 page.wait.load_start()
-                # 检查美国站点
+                # 美国站：三列下拉（店铺/账户/报告类型）+ 选月
                 if data == 'United States':
                     dropdown_stores = page.ele('x://form/div[1]/kat-dropdown')
                     dropdown_stores.click()
@@ -288,7 +307,7 @@ class TestPage:
                     dropdown_month.shadow_root(f'x://kat-option//div[text()="{month_cn}"]',timeout=20).click()
                     time.sleep(3)
 
-                # 检查巴西站点
+                # 巴西站：两列下拉（账户/报告类型）+ 选月
                 elif data == 'Brazil':
                     dropdown_account = page.ele('x://form/div[1]/kat-dropdown')
                     dropdown_account.click()
@@ -311,7 +330,7 @@ class TestPage:
                     dropdown_month.shadow_root(f'x://kat-option//div[text()="{month_cn}"]', timeout=20).click()
                     time.sleep(3)
 
-                # 检查墨西哥站点
+                # 墨西哥站：报告类型 + 选月（表单列数与加拿大类似）
                 elif data == 'Mexico':
                     dropdown_report = page.ele('x://form/div[2]/kat-dropdown')
                     dropdown_report.click()
@@ -329,7 +348,7 @@ class TestPage:
                     dropdown_month.shadow_root(f'x://kat-option//div[text()="{month_cn}"]', timeout=20).click()
                     time.sleep(3)
 
-                # 检查加拿大站点
+                # 加拿大站：报告类型 + 选月
                 elif data == 'Canada':
                     dropdown_report = page.ele('x://form/div[2]/kat-dropdown')
                     dropdown_report.click()
@@ -350,21 +369,14 @@ class TestPage:
                          ' "abcdefghijklmnopqrstuvwxyz")="request report"]',timeout=20).click()
                 time.sleep(3)
 
-
-
-
-
-
-
     def run(self):
+        """入口：执行 main()。"""
         self.main()
 
 
-
-
 if __name__ == '__main__':
-    config = {
-        "username": "13281439638",
+    # CLI 入口：config 仅在此处定义
+    config = {        "username": "13281439638",
         "password": "13281439638@MM",
         "ip": ["54.70.92.80"],  # 多家店铺依次填写
         "port": [9999],
