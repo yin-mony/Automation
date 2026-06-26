@@ -2,6 +2,52 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 import os
+import sys
+
+
+def _find_column(headers, name):
+    """按列名查找索引，charged_amount 兼容透视表列名如「求和项:charged_amount」。"""
+    name_lower = name.lower()
+    for i, h in enumerate(headers):
+        if h is None:
+            continue
+        h_str = str(h).strip()
+        if h_str.lower() == name_lower:
+            return i
+    if name_lower == 'charged_amount':
+        for i, h in enumerate(headers):
+            if h is not None and 'charged_amount' in str(h).lower():
+                return i
+    raise ValueError(f'未找到列「{name}」，当前表头: {[h for h in headers if h]}')
+
+
+def _get_source_worksheet(wb):
+    """始终从含原始明细的 Sheet1 读取，避免误读已生成的 Sheet2。"""
+    if 'Sheet1' in wb.sheetnames:
+        ws = wb['Sheet1']
+        headers = list(next(ws.iter_rows(max_row=1, values_only=True)))
+        try:
+            _find_column(headers, 'myp_order_id')
+            _find_column(headers, 'msku')
+            _find_column(headers, 'charged_amount')
+            return ws, headers
+        except ValueError:
+            pass
+
+    for name in wb.sheetnames:
+        if name.lower() == 'sheet2':
+            continue
+        ws = wb[name]
+        headers = list(next(ws.iter_rows(max_row=1, values_only=True)))
+        try:
+            _find_column(headers, 'myp_order_id')
+            _find_column(headers, 'msku')
+            _find_column(headers, 'charged_amount')
+            return ws, headers
+        except ValueError:
+            continue
+
+    raise ValueError('未找到包含 myp_order_id、msku、charged_amount 的数据表（请使用原始导出表或 Sheet1）')
 
 
 class Excel_file:
@@ -22,20 +68,26 @@ class Excel_file:
 
     def process_excel_file(self, file_path):
         wb = load_workbook(file_path)
-        ws = wb.active
+        ws, headers = _get_source_worksheet(wb)
 
-        headers = []
         data = []
 
         for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
             if row_idx == 0:
-                headers = list(row)
-            else:
-                data.append(list(row))
+                continue
+            data.append(list(row))
 
-        myp_order_id_col = headers.index('myp_order_id')
-        msku_col = headers.index('msku')
-        charged_amount_col = headers.index('charged_amount')
+        myp_order_id_col = _find_column(headers, 'myp_order_id')
+        msku_col = _find_column(headers, 'msku')
+        charged_amount_col = _find_column(headers, 'charged_amount')
+
+        current_order_id = None
+        for row in data:
+            order_id = row[myp_order_id_col]
+            if order_id is not None and str(order_id).strip():
+                current_order_id = order_id
+            else:
+                row[myp_order_id_col] = current_order_id
 
         order_groups = {}
         for row in data:
@@ -76,14 +128,26 @@ class Excel_file:
         for order_id, rows in order_groups.items():
             if order_id not in kept_order_ids:
                 continue
-            first_row = True
+
+            msku_totals = {}
+            msku_order = []
             for row in rows:
+                msku = row[msku_col]
+                amount = row[charged_amount_col] if row[charged_amount_col] else 0
+                if msku not in msku_totals:
+                    msku_totals[msku] = 0
+                    msku_order.append(msku)
+                msku_totals[msku] += amount
+
+            first_row = True
+            for msku in msku_order:
+                total_amount = msku_totals[msku]
                 if first_row:
-                    new_ws2.append([row[myp_order_id_col], row[msku_col], row[charged_amount_col]])
+                    new_ws2.append([order_id, msku, total_amount])
                     first_row = False
                 else:
-                    new_ws2.append(['', row[msku_col], row[charged_amount_col]])
-                overall_total += row[charged_amount_col] if row[charged_amount_col] else 0
+                    new_ws2.append(['', msku, total_amount])
+                overall_total += total_amount
 
         new_ws2.append(['', '', ''])
         new_ws2.append(['总计', '', overall_total])
@@ -95,6 +159,7 @@ class Excel_file:
             if col == 3:
                 cell.alignment = right_align
 
+        new_wb.active = new_ws1
         new_wb.save(file_path)
 
         return len(filtered_data)
@@ -107,20 +172,21 @@ class Excel_file:
             if os.path.exists(file_path):
                 try:
                     count = self.process_excel_file(file_path)
-                    results[file_path] = count
+                    results[file_path] = {'success': True, 'count': count}
                     print(f"处理完成: {file_path}")
                     print(f"记录数: {count}")
                 except Exception as e:
-                    print(f"处理失败 {file_path}: {str(e)}")
-                    results[file_path] = None
+                    err = str(e)
+                    print(f"处理失败 {file_path}: {err}")
+                    results[file_path] = {'success': False, 'error': err}
             else:
                 print(f"文件不存在: {file_path}")
-                results[file_path] = None
+                results[file_path] = {'success': False, 'error': '文件不存在'}
         return results
 
 
 if __name__ == "__main__":
-    import sys
+    
 
     config = {
         "file_paths": [
@@ -137,8 +203,8 @@ if __name__ == "__main__":
 
     excel = Excel_file(config["file_paths"])
     results = excel.process_multiple_files()
-    for file_path, count in results.items():
-        if count is not None:
-            print(f"处理完成: {file_path}，记录数: {count}")
+    for file_path, result in results.items():
+        if result.get('success'):
+            print(f"处理完成: {file_path}，记录数: {result['count']}")
         else:
-            print(f"处理失败: {file_path}")
+            print(f"处理失败: {file_path}，原因: {result.get('error', '未知错误')}")

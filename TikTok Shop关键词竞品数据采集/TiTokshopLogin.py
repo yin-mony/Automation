@@ -94,7 +94,7 @@ class TikTokPage:
 
     # 等待人工完成验证码
     def _wait_manual_img_code(self, page, timeout=180):
-        print('自动识别失败，请手动完成滑动验证码...')
+        # print('自动识别失败，请手动完成滑动验证码...')
         start_time = time.time()
         while time.time() - start_time < timeout:
             if not self.has_img_code(page):

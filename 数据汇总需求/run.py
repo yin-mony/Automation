@@ -2,7 +2,7 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QPushButton, QLabel, QFileDialog, QMessageBox, QTextEdit)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from main import process_multiple_files
+from main import Excel_file
 
 class WorkerThread(QThread):
     finished = pyqtSignal(dict)
@@ -14,7 +14,7 @@ class WorkerThread(QThread):
 
     def run(self):
         try:
-            results = process_multiple_files(self.file_paths)
+            results = Excel_file(self.file_paths).process_multiple_files()
             self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
@@ -90,12 +90,12 @@ class MainWindow(QMainWindow):
         success_count = 0
         fail_count = 0
 
-        for file_path, count in results.items():
-            if count is not None:
-                result_text += f"✓ {file_path}\n  记录数: {count}\n\n"
+        for file_path, result in results.items():
+            if result.get('success'):
+                result_text += f"✓ {file_path}\n  记录数: {result['count']}\n\n"
                 success_count += 1
             else:
-                result_text += f"✗ {file_path}\n  处理失败\n\n"
+                result_text += f"✗ {file_path}\n  处理失败: {result.get('error', '未知错误')}\n\n"
                 fail_count += 1
 
         result_text += f"总计: {success_count} 成功, {fail_count} 失败"

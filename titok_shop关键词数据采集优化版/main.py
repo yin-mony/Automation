@@ -732,7 +732,9 @@ class TikTok:
 if __name__ == '__main__':
     # file_path：关键词来源 Excel；file：链接/JSON/导出 Excel 目录
     config = {
+        # 初始关键词表格文件
         'file_path': r'C:\Users\admin\Desktop\tiktok-竞品信息抓取.xlsx',
+        # 导出目录
         'file': r'D:\Desktop',
     }
     # 启动浏览器并执行完整采集流程
