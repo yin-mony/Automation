@@ -1,3 +1,10 @@
+"""
+下载美国站 Transaction 报告
+
+通过易得客登录 Amazon 卖家后台，在 Reports Repository 申请
+当月美国站 SELLER_TRANSACTION_DATE_RANGE（Transaction）报告。
+"""
+
 import time
 import socket
 import psutil
@@ -14,7 +21,10 @@ from dateutil.relativedelta import relativedelta
 
 
 class TestPage:
-    def __init__(self,config):
+    """易得客 + Amazon 卖家后台：申请美国站 Transaction 月度报告。"""
+
+    def __init__(self, config):
+        """从 config 读取易得客账号、店铺 IP/端口；站点固定为 United States。"""
         self.username = config["username"]
         self.password = config["password"]
         # 店铺IP
@@ -46,6 +56,7 @@ class TestPage:
         os._exit(0)  # 立即终止程序
 
     def kill_edecker(self, exclude_pid):
+        """结束除指定 PID 外的所有 edecker 进程。"""
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 pid = proc.info['pid']
@@ -129,6 +140,7 @@ class TestPage:
         time.sleep(3)
 
     def start_edecker(self, ip: str, port: int):
+        """按店铺 IP 匹配 eDecker profile，以指定调试端口启动浏览器。"""
         import subprocess
         from pathlib import Path
 
@@ -169,9 +181,8 @@ class TestPage:
             str(exe_path),
             f'--user-data-dir={latest}',
             '--no-sandbox',
-            f'--remote-debugging-port={port}'
+            f'--remote-debugging-port={port}'  # DrissionPage 接管用
         ]
-
         print("启动命令:")
         print(" ".join(cmd))
 
@@ -183,6 +194,7 @@ class TestPage:
             raise
 
     def find_seller_tab(self, port, timeout=90):
+        """在指定调试端口的浏览器中查找 Amazon 卖家后台标签页。"""
         browser = Chromium(port)
         deadline = time.time() + timeout
 
@@ -204,7 +216,8 @@ class TestPage:
 
 
     def main(self):
-        sp = Specification(self.username, self.password)  # 其他易得客
+        """完整自动化：登录易得客 → 启动店铺 → 申请美国站 Transaction 报告。"""
+        sp = Specification(self.username, self.password)  # 易得客登录
         time.sleep(5)
         sp.YidekeLogin()
         time.sleep(3)
@@ -237,18 +250,24 @@ class TestPage:
             }
 
             month_cn = month_map[month]
+            # 切换后台显示语言为 English（报告页控件为英文）
+            page.ele('x://div[@aria-label="语言"] | //div[@aria-label="Language"]').click()
+            time.sleep(1.5)
+            # //div[text()="English"]
+            page.ele('x://div[text()="English"]').click()
+            time.sleep(5)
 
-            # 站点检查
+            # 站点检查：切换到 United States 账户
             page.ele('x://span[text()="KORCCI LLC"]').click()
             time.sleep(0.78)
-            site_ele = page.ele(f'x://span[contains(text(), "{self.data}")]', timeout=20)
-            if (site_ele.text or '').strip() != self.data:
-                page.ele('x://*[text()="See all"][1]').click()
-                time.sleep(0.78)
-                page.ele(f'x://span[contains(text(), "{self.data}")]', timeout=20).click()
-                time.sleep(0.78)
-                page.ele('x://kat-button[@label="Select account"]', timeout=20).click()
-            # 菜单栏
+            # site_ele = page.ele(f'x://span[contains(text(), "{self.data}")]', timeout=20)
+            # if (site_ele.text or '').strip() != self.data:
+            page.ele('x://*[text()="See all"][1]').click()
+            time.sleep(0.78)
+            page.ele(f'x://span[contains(text(), "{self.data}")]', timeout=20).click()
+            time.sleep(0.78)
+            page.ele('x://kat-button[@label="Select account"]', timeout=20).click()
+            # 汉堡菜单（shadow DOM）进入 Payments → Reports Repository
             menu_host = page.ele('x://*[@data-test-tag="hamburger-menu"]', timeout=30)
             menu = menu_host.shadow_root
             # print(11111)
@@ -261,6 +280,7 @@ class TestPage:
             time.sleep(3)
 
             page.wait.load_start()
+            # 报告筛选：全店铺、全账户、Transaction 类型、按月
             dropdown_stores = page.ele('x://form/div[1]/kat-dropdown')
             dropdown_stores.click()
             time.sleep(3)
@@ -296,14 +316,13 @@ class TestPage:
 
 
     def run(self):
+        """入口：执行 main()。"""
         self.main()
 
 
-
-
 if __name__ == '__main__':
-    config = {
-        "username": "13281439638",
+    # CLI 入口：config 仅在此处定义
+    config = {        "username": "13281439638",
         "password": "13281439638@MM",
         "ip": ["54.70.92.80"],  # 多家店铺依次填写
         "port": [9527],

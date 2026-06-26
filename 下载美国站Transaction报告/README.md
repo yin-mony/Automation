@@ -6,20 +6,42 @@
 
 - `YidekeLogin.py`：易得客登录与浏览器启动（`Specification`）
 - `main.py`：多店铺启动、美国站点检查/切换、Reports Repository 表单填写与 Request Report
+- `run.py`：Tkinter GUI 入口
+- `build_exe.bat`：安装依赖并打包 exe
+- `下载美国站Transaction报告.spec`：PyInstaller 配置
 - `test.py`：调试脚本
 
 ## 依赖
 
 - Python 3
 - DrissionPage、psutil、pywinauto、python-dateutil
-- 本地已安装易得客（eDecker6）及对应店铺 profile
 
 ## 运行
 
-在 `main.py` 底部 `config` 中配置易得客账号、店铺 IP 与调试端口，然后：
+### GUI
+
+```bash
+python run.py
+```
+
+### 命令行
+
+在 `main.py` 底部 `config` 中配置易得客账号、店铺 IP 与调试端口：
 
 ```bash
 python main.py
+```
+
+## 打包
+
+```bash
+build_exe.bat
+```
+
+或：
+
+```bash
+pyinstaller --clean 下载美国站Transaction报告.spec
 ```
 
 ## 说明
