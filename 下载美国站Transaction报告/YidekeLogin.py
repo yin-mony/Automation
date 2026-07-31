@@ -4,7 +4,9 @@ import psutil
 import os
 import subprocess
 import socket
+import ctypes
 from pywinauto.application import Application
+from pywinauto import Desktop
 from DrissionPage import ChromiumPage,Chromium
 class Specification:
     def __init__(self,username,password):
@@ -124,3 +126,213 @@ class Specification:
                 print(f"YidekeLogin 第{attempt}次尝试失败，{retry_interval}秒后重试: {e}")
                 time.sleep(retry_interval)
         raise RuntimeError(f"YidekeLogin 重试{max_retries}次后仍失败") from last_error
+
+    class AmazonSeller:
+        """Amazon 卖家中心登录（店铺 profile 浏览器内）"""
+
+        def __init__(self, page, store_password=None, siteName="United States", siteChineseName="美国"):
+            # 店铺 profile 页面由易得客打开，Amazon 登录逻辑只接管该页面
+            self.page = page
+            self.StorePassword = store_password or ""
+            self.siteName = siteName or "United States"
+            self.siteChineseName = siteChineseName or "美国"
+
+        def pickSellerTab(self, page):
+            """在多标签中选取 Amazon 卖家相关页面"""
+            backend_tab = None
+            login_tab = None
+            try:
+                browser = page.browser
+                for tab_id in browser.tab_ids:
+                    tab = browser.get_tab(tab_id)
+                    url = (tab.url or "").lower()
+                    if url.startswith("chrome-extension://"):
+                        continue
+                    if "sellercentral.amazon" in url and "/ap/signin" not in url:
+                        backend_tab = tab
+                        break
+                    if "/ap/signin" in url or "sellercentral.amazon" in url:
+                        login_tab = tab
+                picked = backend_tab or login_tab
+                if picked:
+                    self.page = picked
+                    return picked
+            except Exception:
+                pass
+            return page
+
+        def Code(self):
+            """通过易得客验证码插件窗口填入 Amazon 二步验证码"""
+            time.sleep(1)
+            desktop = Desktop(backend="uia")
+            success = False
+            for win in desktop.windows():
+                try:
+                    # 先找到验证码服务按钮，再轮询填入验证码或获取最新验证码按钮
+                    for btn in win.descendants(control_type="Button"):
+                        if "二步验证码服务" in btn.window_text():
+                            btn.click_input()
+                            time.sleep(1.5)
+                            while True:
+                                found = False
+                                for button in win.descendants(control_type="Button"):
+                                    name = button.window_text()
+                                    if name == "填入验证码":
+                                        button.click_input()
+                                        time.sleep(1.5)
+                                        button.click_input()
+                                        found = True
+                                        success = True
+                                        break
+                                    if name == "获取最新验证码":
+                                        button.click_input()
+                                        time.sleep(1)
+                                        button.click_input()
+                                        found = True
+                                        break
+                                if success:
+                                    break
+                                if not found:
+                                    time.sleep(0.2)
+                            break
+                    if success:
+                        break
+                except Exception as exc:
+                    print(exc)
+
+            return success
+
+        def waitPassword(self, passwordInput):
+            """等待 Amazon 密码框自动填充或提示用户手动填入"""
+            if not passwordInput:
+                raise RuntimeError("未找到 Amazon 密码输入框")
+
+            if self.StorePassword:
+                passwordInput.input(self.StorePassword, clear=True)
+                return True
+
+            # 未配置 Amazon 密码时，等待浏览器保存的密码自动填充
+            for _ in range(20):
+                value = passwordInput.attr("value") or ""
+                if value:
+                    return True
+                time.sleep(0.5)
+
+            # 自动填充未完成时，提示用户手动选择浏览器保存的密码
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "Amazon 密码未自动填入。\n请在浏览器密码框中手动选择已保存密码或输入密码，完成后点击“确定”继续。",
+                "Amazon 密码确认",
+                0x40 | 0x40000,
+            )
+
+            # 用户确认后再次等待密码框有值，避免空密码直接提交
+            for _ in range(240):
+                value = passwordInput.attr("value") or ""
+                if value:
+                    return True
+                time.sleep(0.5)
+            return False
+
+        def submitPassword(self, page, passwordInput):
+            """确认 Amazon 密码已填入后提交登录"""
+            if not self.waitPassword(passwordInput):
+                raise RuntimeError("Amazon 密码未填入，已停止提交登录")
+            time.sleep(0.78)
+            page.ele('x://input[@id="signInSubmit"]').click()
+            time.sleep(5)
+
+        def Login(self, page):
+            """处理 Amazon 登录页、店铺账户选择页与二步验证码"""
+            # 登录按钮存在时说明当前停留在 Amazon 密码确认页
+            login = page.ele('x://input[@id="continue"]')
+            # 账户搜索框存在时说明当前停留在 Seller Central 账户选择页
+            SFA = page.ele(
+                'x://kat-input[@placeholder="搜索账户" '
+                'or @placeholder="搜索账号" '
+                'or @placeholder="Search for an account"]',
+                timeout=5,
+            )
+            # 密码框存在时说明当前需要补充 Amazon 密码
+            passwordInput = page.ele('x://input[@type="password"]', timeout=5)
+            if login:
+                login.click()
+                time.sleep(5)
+                passwordInput = page.ele('x://input[@type="password"]', timeout=10)
+                self.submitPassword(page, passwordInput)
+                self.Code()
+                time.sleep(0.78)
+                page.ele('x://input[@type="submit"]').click()
+                SFA = page.ele(
+                    'x://*[@placeholder="搜索账户" '
+                    'or @placeholder="搜索账号" '
+                    'or @placeholder="Search for an account"]'
+                )
+            elif passwordInput:
+                self.submitPassword(page, passwordInput)
+                self.Code()
+                time.sleep(0.78)
+                codeSubmit = page.ele('x://input[@type="submit"]', timeout=5)
+                if codeSubmit:
+                    codeSubmit.click()
+                SFA = page.ele(
+                    'x://*[@placeholder="搜索账户" '
+                    'or @placeholder="搜索账号" '
+                    'or @placeholder="Search for an account"]',
+                    timeout=10,
+                )
+            if SFA:
+                time.sleep(4)
+                searchPlaceholder = SFA.attr("placeholder") or ""
+                searchSiteName = self.siteChineseName if "搜索" in searchPlaceholder else self.siteName
+                SFA.input(searchSiteName, by_js=True)
+                time.sleep(0.78)
+                page.ele(
+                    f'x://span[normalize-space()="{self.siteName}" '
+                    f'or normalize-space()="{self.siteChineseName}"]'
+                ).click()
+                time.sleep(0.78)
+                page.ele(
+                    'x://kat-button[@label="选择账户" or @label="Select account"]'
+                    ' | //button[normalize-space()="选择账户" or normalize-space()="Select account"]'
+                ).click()
+                time.sleep(5)
+                try:
+                    sub = page.ele('x://input[@type="submit"]').click()
+                    if sub:
+                        passwordInput = page.ele('x://input[@type="password"]', timeout=10)
+                        if not self.waitPassword(passwordInput):
+                            raise RuntimeError("Amazon 密码未填入，已停止二次验证提交")
+                        time.sleep(0.78)
+                        sub.click()
+                        self.Code()
+                except Exception:
+                    pass
+
+        def login(self, email=None, password=None, timeout=120):
+            """切换 Amazon 标签后委托 Login() 完成初次登录"""
+            if password:
+                self.StorePassword = password
+            page = self.pickSellerTab(self.page)
+            self.Login(page)
+            self.page = page
+            return page
+
+    def amazonSellerLogin(
+        self,
+        page,
+        email=None,
+        password=None,
+        timeout=120,
+        siteEnglishName="United States",
+        siteChineseName="美国",
+    ):
+        """Amazon 卖家中心登录，委托内置 AmazonSeller"""
+        return self.AmazonSeller(
+            page,
+            store_password=password,
+            siteName=siteEnglishName,
+            siteChineseName=siteChineseName,
+        ).login(
+            email, password, timeout=timeout,
+        )

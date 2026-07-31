@@ -425,8 +425,8 @@ class TestPage:
 
 if __name__ == '__main__':
     config = {
-        "username": "13281439638",
-        "password": "13281439638@MM",
+        "username": os.getenv("YIDEKE_USERNAME", ""),
+        "password": os.getenv("YIDEKE_PASSWORD", ""),
         "ip": ["54.70.92.80"],  # 多家店铺依次填写
         "port": [8888],
         "data": ["United States","Canada","Mexico","Brazil"],
