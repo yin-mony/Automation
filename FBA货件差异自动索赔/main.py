@@ -27,6 +27,14 @@ class Main:
         self.defaultSendEmail = False
         # 默认邮件接收邮箱，用于 GUI 首次启动时回填
         self.defaultEmail = "yinkaiyuan@bonison.net"
+        # 默认邮件发件邮箱，用于 SMTP 登录并发送通知邮件
+        self.defaultSenderEmail = "1974419863@qq.com"
+        # 默认 SMTP 授权码，用于发件邮箱登录 SMTP 服务
+        self.defaultSmtpAuthCode = "ucvopobstjhobbef"
+        # 默认 SMTP 服务地址，QQ 邮箱使用 smtp.qq.com
+        self.defaultSmtpServer = "smtp.qq.com"
+        # 默认 SMTP SSL 端口，QQ 邮箱 SSL 发送端口为 465
+        self.defaultSmtpPort = "465"
         # 默认企业微信发送开关，False 表示不发送企业微信通知
         self.defaultSendWechat = False
         # 默认企业微信群机器人 Webhook，用于推送 CASE 结果汇总
@@ -166,6 +174,10 @@ if __name__ == "__main__":
         "templatePath": service.defaultTemplatePath,
         "sendEmail": service.defaultSendEmail,
         "email": service.defaultEmail,
+        "sender_email": service.defaultSenderEmail,
+        "smtp_auth_code": service.defaultSmtpAuthCode,
+        "smtp_server": service.defaultSmtpServer,
+        "smtp_port": service.defaultSmtpPort,
         "sendWechat": service.defaultSendWechat,
         "wechatWebhook": service.defaultWechatWebhook,
         "wechatMobile": service.defaultWechatMobile,

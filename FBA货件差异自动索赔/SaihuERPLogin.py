@@ -31,7 +31,28 @@ class SaiHuERPLogin:
             self.page.ele('x://input[@id="password"]').input(f'{self.password}',clear=True)
             for index in range(7):
                 # 每次失败后重新读取验证码图片并 OCR 识别
-                img_bs4 = self.page.ele('x://div[@class="login_vcode"]/a/img').attr('src').split(",")[1]
+                captchaImg = self.page.ele('x://div[contains(@class,"login_vcode")]//img', timeout=5)
+                if not captchaImg:
+                    login = self.page.ele('x://span[text()="商品"]', timeout=2)
+                    if login:
+                        self.closeNotice()
+                        return True
+                    print("未找到验证码图片，刷新登录页后重试。", flush=True)
+                    self.page.refresh()
+                    time.sleep(2)
+                    usernameInput = self.page.ele('x://input[@id="username"]', timeout=5)
+                    passwordInput = self.page.ele('x://input[@id="password"]', timeout=5)
+                    if usernameInput and passwordInput:
+                        usernameInput.input(f'{self.username}', clear=True)
+                        passwordInput.input(f'{self.password}', clear=True)
+                    continue
+                src = captchaImg.attr('src') or ""
+                if "," not in src:
+                    print("验证码图片未返回 base64 内容，点击刷新验证码后重试。", flush=True)
+                    captchaImg.click()
+                    time.sleep(1)
+                    continue
+                img_bs4 = src.split(",")[1]
                 img_url = self.img_code(img_bs4)
                 self.page.ele('x://*[@placeholder="请输入图形验证码"]').input(img_url, clear=True)
                 checkbox_label = self.page.ele('@class=el-checkbox center_align')
@@ -47,6 +68,23 @@ class SaiHuERPLogin:
                 if login:
                     self.closeNotice()
                     return True
+            login = self.page.ele('x://span[text()="商品"]', timeout=2)
+            if login:
+                self.closeNotice()
+                return True
+            print("自动登录未成功，请手动完成赛狐登录后继续。", flush=True)
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "自动登录未成功，请在浏览器中手动完成赛狐登录。\n登录进入赛狐系统后，点击本提示框“确定”继续。",
+                "赛狐登录处理",
+                0x40 | 0x40000,
+            )
+            for _ in range(120):
+                login = self.page.ele('x://span[text()="商品"]', timeout=1)
+                if login:
+                    self.closeNotice()
+                    return True
+                time.sleep(1)
             return False
         self.closeNotice()
         return True

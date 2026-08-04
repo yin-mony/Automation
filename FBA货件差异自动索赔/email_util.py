@@ -15,6 +15,8 @@ PROJECT_NAME = "FBA货件差异自动索赔"
 DEFAULT_SUBJECT = f"自动化_{PROJECT_NAME}"
 DEFAULT_SENDER_EMAIL = "1974419863@qq.com"
 DEFAULT_SMTP_AUTH_CODE = "ucvopobstjhobbef"
+DEFAULT_SMTP_SERVER = "smtp.qq.com"
+DEFAULT_SMTP_PORT = 465
 
 
 def formatMailAddr(name, email):
@@ -22,15 +24,15 @@ def formatMailAddr(name, email):
     return formataddr((str(Header(name, "utf-8")), email))
 
 
-def send_email_with_files(sender_email, auth_code, receiver_email, subject, content, file_paths):
+def send_email_with_files(sender_email, auth_code, receiver_email, subject, content, file_paths, smtp_server=None, smtp_port=None):
     """发送带多个附件的邮件。"""
     # 统一附件入参格式，调用方可传单个路径或路径列表
     if isinstance(file_paths, str):
         file_paths = [file_paths]
 
-    # 本项目默认使用 QQ 邮箱 SMTP SSL 发送
-    smtp_server = "smtp.qq.com"
-    smtp_port = 465
+    # SMTP 服务地址和端口由配置传入，缺省时使用项目默认值
+    smtp_server = str(smtp_server or DEFAULT_SMTP_SERVER).strip()
+    smtp_port = int(smtp_port or DEFAULT_SMTP_PORT)
 
     # 邮件标题、显示名与正文全部在 Python UTF-8 字符串内构造，避免 PowerShell 中转导致中文变问号
     msg = MIMEMultipart()
@@ -121,6 +123,16 @@ def deliver_outputs(config, file_paths, subject=None, content=None):
         or os.getenv("SMTP_AUTH_CODE")
         or DEFAULT_SMTP_AUTH_CODE
     ).strip()
+    smtpServer = (
+        config.get("smtp_server")
+        or os.getenv("SMTP_SERVER")
+        or DEFAULT_SMTP_SERVER
+    ).strip()
+    smtpPort = (
+        config.get("smtp_port")
+        or os.getenv("SMTP_PORT")
+        or DEFAULT_SMTP_PORT
+    )
 
     if not paths:
         print("未找到可发送的 POP 文件，跳过邮件")
@@ -134,6 +146,8 @@ def deliver_outputs(config, file_paths, subject=None, content=None):
         subject=subject or DEFAULT_SUBJECT,
         content=content or f"自动化_{PROJECT_NAME}生成的 POP 文档，共 {len(paths)} 个文件。",
         file_paths=paths,
+        smtp_server=smtpServer,
+        smtp_port=smtpPort,
     )
 
 
@@ -159,6 +173,16 @@ def deliverCase(config, resultList, failList=None, skipList=None, caseResultPath
         or os.getenv("SMTP_AUTH_CODE")
         or DEFAULT_SMTP_AUTH_CODE
     ).strip()
+    smtpServer = (
+        config.get("smtp_server")
+        or os.getenv("SMTP_SERVER")
+        or DEFAULT_SMTP_SERVER
+    ).strip()
+    smtpPort = (
+        config.get("smtp_port")
+        or os.getenv("SMTP_PORT")
+        or DEFAULT_SMTP_PORT
+    )
 
     resultList = list(resultList or [])
     failList = list(failList or [])
@@ -230,4 +254,6 @@ def deliverCase(config, resultList, failList=None, skipList=None, caseResultPath
         subject="FBA货件差异自动索赔-CASE提交结果",
         content="\n".join(lines),
         file_paths=filePaths,
+        smtp_server=smtpServer,
+        smtp_port=smtpPort,
     )

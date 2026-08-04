@@ -226,6 +226,14 @@ class RunGui:
         self.defaultTemplatePath = self.main.defaultTemplatePath
         # 默认邮件接收邮箱，由 Main 统一维护
         self.defaultEmail = self.main.defaultEmail
+        # 默认邮件发件邮箱，由 Main 统一维护
+        self.defaultSenderEmail = self.main.defaultSenderEmail
+        # 默认 SMTP 授权码，由 Main 统一维护
+        self.defaultSmtpAuthCode = self.main.defaultSmtpAuthCode
+        # 默认 SMTP 服务地址，由 Main 统一维护
+        self.defaultSmtpServer = self.main.defaultSmtpServer
+        # 默认 SMTP SSL 端口，由 Main 统一维护
+        self.defaultSmtpPort = self.main.defaultSmtpPort
         # 默认企业微信 Webhook，由 Main 统一维护
         self.defaultWechatWebhook = self.main.defaultWechatWebhook
         # 默认企业微信 @ 手机号，由 Main 统一维护
@@ -285,6 +293,10 @@ class RunGui:
         self.isOnlineVar = tk.StringVar(value="offline")
         self.sendEmailVar = tk.StringVar(value="no")
         self.emailVar = tk.StringVar(value=self.defaultEmail)
+        self.senderEmailVar = tk.StringVar(value=self.defaultSenderEmail)
+        self.smtpAuthCodeVar = tk.StringVar(value=self.defaultSmtpAuthCode)
+        self.smtpServerVar = tk.StringVar(value=self.defaultSmtpServer)
+        self.smtpPortVar = tk.StringVar(value=self.defaultSmtpPort)
         self.sendWechatVar = tk.StringVar(value="no")
         self.wechatWebhookVar = tk.StringVar(value=self.defaultWechatWebhook)
         self.wechatMobileVar = tk.StringVar(value=self.defaultWechatMobile)
@@ -662,8 +674,24 @@ $form.Dispose()
         sendEmail = self.sendEmailVar.get() == "yes"
         sendWechat = self.sendWechatVar.get() == "yes"
         email = self.emailVar.get().strip()
+        senderEmail = self.senderEmailVar.get().strip()
+        smtpAuthCode = self.smtpAuthCodeVar.get().strip()
+        smtpServer = self.smtpServerVar.get().strip()
+        smtpPort = self.smtpPortVar.get().strip()
         wechatWebhook = self.wechatWebhookVar.get().strip()
         wechatMobile = self.wechatMobileVar.get().strip()
+        # 邮件通知开启时必须具备完整 SMTP 发件配置
+        if sendEmail:
+            if not email:
+                raise ValueError("选择发送邮件时必须填写接收邮箱")
+            if not senderEmail:
+                raise ValueError("选择发送邮件时必须配置发件邮箱")
+            if not smtpAuthCode:
+                raise ValueError("选择发送邮件时必须配置 SMTP 授权码")
+            if not smtpServer:
+                raise ValueError("选择发送邮件时必须配置 SMTP 服务地址")
+            if not smtpPort.isdigit():
+                raise ValueError("SMTP 端口只能填写数字")
         # 企业微信通知开启时必须提供 Webhook 与 @ 手机号
         if sendWechat:
             if not wechatWebhook:
@@ -678,6 +706,14 @@ $form.Dispose()
             "sendEmail": sendEmail,
             # 邮件接收人
             "email": email,
+            # 邮件发件邮箱
+            "sender_email": senderEmail,
+            # 邮件发件邮箱 SMTP 授权码
+            "smtp_auth_code": smtpAuthCode,
+            # SMTP 服务地址
+            "smtp_server": smtpServer,
+            # SMTP SSL 端口
+            "smtp_port": smtpPort,
             # 企业微信通知开关
             "sendWechat": sendWechat,
             # 企业微信群机器人 Webhook
@@ -995,6 +1031,10 @@ $form.Dispose()
         self.isOnlineVar.set("online" if data.get("isOnline") else "offline")
         self.sendEmailVar.set("yes" if data.get("sendEmail") else "no")
         self.emailVar.set(str(data.get("email") or self.defaultEmail).strip())
+        self.senderEmailVar.set(str(data.get("sender_email") or self.defaultSenderEmail).strip())
+        self.smtpAuthCodeVar.set(str(data.get("smtp_auth_code") or self.defaultSmtpAuthCode).strip())
+        self.smtpServerVar.set(str(data.get("smtp_server") or self.defaultSmtpServer).strip())
+        self.smtpPortVar.set(str(data.get("smtp_port") or self.defaultSmtpPort).strip())
         self.sendWechatVar.set("yes" if data.get("sendWechat") else "no")
         self.wechatWebhookVar.set(str(data.get("wechatWebhook") or self.defaultWechatWebhook).strip())
         self.wechatMobileVar.set(str(data.get("wechatMobile") or self.defaultWechatMobile).strip())
@@ -1039,6 +1079,10 @@ $form.Dispose()
             "isOnline": self.isOnlineVar.get() == "online",
             "sendEmail": self.sendEmailVar.get() == "yes",
             "email": self.emailVar.get().strip(),
+            "sender_email": self.senderEmailVar.get().strip() or self.defaultSenderEmail,
+            "smtp_auth_code": self.smtpAuthCodeVar.get().strip() or self.defaultSmtpAuthCode,
+            "smtp_server": self.smtpServerVar.get().strip() or self.defaultSmtpServer,
+            "smtp_port": self.smtpPortVar.get().strip() or self.defaultSmtpPort,
             "sendWechat": self.sendWechatVar.get() == "yes",
             "wechatWebhook": self.wechatWebhookVar.get().strip(),
             "wechatMobile": self.wechatMobileVar.get().strip(),
