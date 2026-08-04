@@ -8,14 +8,14 @@ import sys
 import threading
 import traceback
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from DrissionPage import ChromiumPage
+from tkcalendar import DateEntry
 
-from auto import Auto
-from export import PopExport
-from main import FbaClaim
+from main import Main
 
 
 class RunGui:
@@ -43,7 +43,13 @@ class RunGui:
             ttk.Entry(form, textvariable=self.owner.usernameVar).grid(row=0, column=1, sticky=tk.EW, pady=6)
 
             ttk.Label(form, text="赛狐密码").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=6)
-            ttk.Entry(form, textvariable=self.owner.passwordVar, show="*").grid(row=1, column=1, sticky=tk.EW, pady=6)
+            passwordFrame = ttk.Frame(form)
+            passwordFrame.grid(row=1, column=1, sticky=tk.EW, pady=6)
+            passwordEntry = ttk.Entry(passwordFrame, textvariable=self.owner.passwordVar, show="*")
+            passwordEntry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            passwordButton = ttk.Button(passwordFrame, text="显示", width=6)
+            passwordButton.config(command=lambda: self.owner.togglePassword(passwordEntry, passwordButton))
+            passwordButton.pack(side=tk.LEFT, padx=(8, 0))
 
             ttk.Label(form, text="导出目录").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=6)
             exportFrame = ttk.Frame(form)
@@ -60,14 +66,49 @@ class RunGui:
             )
             siteCombo.grid(row=3, column=1, sticky=tk.EW, pady=6)
 
-            ttk.Label(form, text="签名姓名").grid(row=4, column=0, sticky=tk.W, padx=(0, 8), pady=6)
-            ttk.Entry(form, textvariable=self.owner.signatureNameVar).grid(row=4, column=1, sticky=tk.EW, pady=6)
+            ttk.Label(form, text="筛选店铺").grid(row=4, column=0, sticky=tk.W, padx=(0, 8), pady=6)
+            shopCombo = ttk.Combobox(
+                form,
+                textvariable=self.owner.shopNameVar,
+                values=self.owner.shopNames,
+                state="readonly",
+            )
+            shopCombo.grid(row=4, column=1, sticky=tk.EW, pady=6)
 
-            ttk.Label(form, text="签名图片").grid(row=5, column=0, sticky=tk.W, padx=(0, 8), pady=6)
-            imageFrame = ttk.Frame(form)
-            imageFrame.grid(row=5, column=1, sticky=tk.EW, pady=6)
-            ttk.Entry(imageFrame, textvariable=self.owner.signatureImageVar).pack(side=tk.LEFT, fill=tk.X, expand=True)
-            ttk.Button(imageFrame, text="选择图片", command=self.owner.selectSignatureImage).pack(side=tk.LEFT, padx=(8, 0))
+            ttk.Label(form, text="筛选时间").grid(row=5, column=0, sticky=tk.W, padx=(0, 8), pady=6)
+            dateFrame = ttk.Frame(form)
+            dateFrame.grid(row=5, column=1, sticky=tk.EW, pady=6)
+            startDateText = self.owner.startDateVar.get()
+            startDateEntry = DateEntry(
+                dateFrame,
+                textvariable=self.owner.startDateVar,
+                date_pattern="yyyy-mm-dd",
+                width=16,
+            )
+            try:
+                startDateEntry.set_date(datetime.strptime(startDateText, "%Y-%m-%d").date())
+            except ValueError:
+                startDateEntry.set_date(datetime.strptime(self.owner.defaultStartDate, "%Y-%m-%d").date())
+            startDateEntry.pack(side=tk.LEFT)
+            ttk.Label(dateFrame, text="至").pack(side=tk.LEFT, padx=8)
+            endDateText = self.owner.endDateVar.get()
+            endDateEntry = DateEntry(
+                dateFrame,
+                textvariable=self.owner.endDateVar,
+                date_pattern="yyyy-mm-dd",
+                width=16,
+            )
+            try:
+                endDateEntry.set_date(datetime.strptime(endDateText, "%Y-%m-%d").date())
+            except ValueError:
+                endDateEntry.set_date(datetime.strptime(self.owner.defaultEndDate, "%Y-%m-%d").date())
+            endDateEntry.pack(side=tk.LEFT)
+
+            ttk.Label(form, text="模板文件").grid(row=6, column=0, sticky=tk.W, padx=(0, 8), pady=6)
+            templateFrame = ttk.Frame(form)
+            templateFrame.grid(row=6, column=1, sticky=tk.EW, pady=6)
+            ttk.Entry(templateFrame, textvariable=self.owner.templatePathVar).pack(side=tk.LEFT, fill=tk.X, expand=True)
+            ttk.Button(templateFrame, text="选择模板", command=self.owner.selectTemplateFile).pack(side=tk.LEFT, padx=(8, 0))
             form.columnconfigure(1, weight=1)
 
             actions = ttk.Frame(self.parent)
@@ -105,7 +146,15 @@ class RunGui:
             ttk.Entry(form, textvariable=self.owner.yidekeUsernameVar).grid(row=0, column=1, sticky=tk.EW, pady=6)
 
             ttk.Label(form, text="易得客密码").grid(row=1, column=0, sticky=tk.W, padx=(0, 8), pady=6)
-            ttk.Entry(form, textvariable=self.owner.yidekePasswordVar, show="*").grid(row=1, column=1, sticky=tk.EW, pady=6)
+            yidekePasswordFrame = ttk.Frame(form)
+            yidekePasswordFrame.grid(row=1, column=1, sticky=tk.EW, pady=6)
+            yidekePasswordEntry = ttk.Entry(yidekePasswordFrame, textvariable=self.owner.yidekePasswordVar, show="*")
+            yidekePasswordEntry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            yidekePasswordButton = ttk.Button(yidekePasswordFrame, text="显示", width=6)
+            yidekePasswordButton.config(
+                command=lambda: self.owner.togglePassword(yidekePasswordEntry, yidekePasswordButton),
+            )
+            yidekePasswordButton.pack(side=tk.LEFT, padx=(8, 0))
 
             ttk.Label(form, text="店铺站点").grid(row=2, column=0, sticky=tk.W, padx=(0, 8), pady=6)
             siteCombo = ttk.Combobox(
@@ -115,6 +164,7 @@ class RunGui:
                 state="readonly",
             )
             siteCombo.grid(row=2, column=1, sticky=tk.EW, pady=6)
+            siteCombo.bind("<<ComboboxSelected>>", lambda event: self.owner.amazonSiteNameVar.set(self.owner.autoSiteNameVar.get()))
 
             ttk.Label(form, text="店铺 IP").grid(row=3, column=0, sticky=tk.W, padx=(0, 8), pady=6)
             ttk.Entry(form, textvariable=self.owner.shopIpVar).grid(row=3, column=1, sticky=tk.EW, pady=6)
@@ -128,16 +178,25 @@ class RunGui:
             ttk.Label(form, text="Amazon 密码").grid(row=6, column=0, sticky=tk.W, padx=(0, 8), pady=6)
             ttk.Entry(form, textvariable=self.owner.amazonPasswordVar, show="*").grid(row=6, column=1, sticky=tk.EW, pady=6)
 
-            ttk.Label(form, text="已完成导出存放 POP 文件的目录").grid(row=7, column=0, sticky=tk.W, padx=(0, 8), pady=6)
+            ttk.Label(form, text="Amazon 后台站点").grid(row=7, column=0, sticky=tk.W, padx=(0, 8), pady=6)
+            amazonSiteCombo = ttk.Combobox(
+                form,
+                textvariable=self.owner.amazonSiteNameVar,
+                values=self.owner.autoSiteNames,
+                state="readonly",
+            )
+            amazonSiteCombo.grid(row=7, column=1, sticky=tk.EW, pady=6)
+
+            ttk.Label(form, text="已完成导出存放 POP 文件的目录").grid(row=8, column=0, sticky=tk.W, padx=(0, 8), pady=6)
             popFrame = ttk.Frame(form)
-            popFrame.grid(row=7, column=1, sticky=tk.EW, pady=6)
+            popFrame.grid(row=8, column=1, sticky=tk.EW, pady=6)
             ttk.Entry(popFrame, textvariable=self.owner.popDirVar).pack(side=tk.LEFT, fill=tk.X, expand=True)
             ttk.Button(popFrame, text="浏览", command=self.owner.selectPopDir).pack(side=tk.LEFT, padx=(8, 0))
             ttk.Button(popFrame, text="刷新编号", command=self.owner.refreshAutoShipmentIds).pack(side=tk.LEFT, padx=(8, 0))
 
-            ttk.Label(form, text="待处理货件编号").grid(row=8, column=0, sticky=tk.NW, padx=(0, 8), pady=6)
+            ttk.Label(form, text="待处理货件编号").grid(row=9, column=0, sticky=tk.NW, padx=(0, 8), pady=6)
             self.owner.autoShipmentBox = scrolledtext.ScrolledText(form, height=4, wrap=tk.WORD, state=tk.DISABLED)
-            self.owner.autoShipmentBox.grid(row=8, column=1, sticky=tk.EW, pady=6)
+            self.owner.autoShipmentBox.grid(row=9, column=1, sticky=tk.EW, pady=6)
             form.columnconfigure(1, weight=1)
 
             actions = ttk.Frame(self.parent)
@@ -155,12 +214,50 @@ class RunGui:
             # 易得客标签页控件已创建完成
 
     def __init__(self, root):
-        # 项目路径与配置文件
-        self.baseDir = PopExport.getBaseDir()
-        self.configFile = self.baseDir / "run_config.json"
-        self.defaultExportDir = str(self.baseDir / "output")
-        self.defaultSignatureName = "Xiaoyu Wang"
-        self.defaultWechatWebhook = ""
+        # 主配置入口，负责提供 GUI 默认值并调用两个业务流程
+        self.main = Main()
+        # 项目根目录，由 Main 统一维护
+        self.baseDir = self.main.baseDir
+        # GUI 本地缓存配置文件，由 Main 统一维护
+        self.configFile = self.main.configFile
+        # 默认 POP 输出目录，由 Main 统一维护
+        self.defaultExportDir = self.main.defaultExportDir
+        # 默认 POP 模板文件，由 Main 统一维护
+        self.defaultTemplatePath = self.main.defaultTemplatePath
+        # 默认邮件接收邮箱，由 Main 统一维护
+        self.defaultEmail = self.main.defaultEmail
+        # 默认企业微信 Webhook，由 Main 统一维护
+        self.defaultWechatWebhook = self.main.defaultWechatWebhook
+        # 默认企业微信 @ 手机号，由 Main 统一维护
+        self.defaultWechatMobile = self.main.defaultWechatMobile
+        # 默认赛狐账号，由 Main 统一维护
+        self.defaultSaihuUsername = self.main.defaultSaihuUsername
+        # 默认赛狐密码，由 Main 统一维护
+        self.defaultSaihuPassword = self.main.defaultSaihuPassword
+        # 默认赛狐筛选站点，由 Main 统一维护
+        self.defaultSiteName = self.main.defaultSiteName
+        # 默认赛狐店铺主体名，由 Main 统一维护
+        self.defaultShopBaseName = self.main.defaultShopBaseName
+        # 默认赛狐筛选开始时间，由 Main 统一维护
+        self.defaultStartDate = self.main.defaultStartDate
+        # 默认赛狐筛选结束时间，由 Main 统一维护
+        self.defaultEndDate = self.main.defaultEndDate
+        # 默认易得客账号，由 Main 统一维护
+        self.defaultYidekeUsername = self.main.defaultYidekeUsername
+        # 默认易得客密码，由 Main 统一维护
+        self.defaultYidekePassword = self.main.defaultYidekePassword
+        # 默认易得客店铺站点，由 Main 统一维护
+        self.defaultAutoSiteName = self.main.defaultAutoSiteName
+        # 默认 Amazon 后台站点，由 Main 统一维护
+        self.defaultAmazonSiteName = self.main.defaultAmazonSiteName
+        # 默认店铺 IP，由 Main 统一维护
+        self.defaultShopIp = self.main.defaultShopIp
+        # 默认店铺端口，由 Main 统一维护
+        self.defaultShopPort = self.main.defaultShopPort
+        # 默认 Amazon 邮箱，由 Main 统一维护
+        self.defaultAmazonEmail = self.main.defaultAmazonEmail
+        # 默认 Amazon 密码，由 Main 统一维护
+        self.defaultAmazonPassword = self.main.defaultAmazonPassword
         # Tk 根窗口
         self.root = root
         self.root.title("FBA 货件差异自动索赔")
@@ -174,61 +271,41 @@ class RunGui:
         self.currentStatusVar = None
         self.selectingExportDir = False
         self.selectingPopDir = False
-        # 赛狐 FBA 站点选择项，与 FbaClaim 的站点映射保持一致
-        self.siteNames = [
-            "美国", "加拿大", "墨西哥", "巴西",
-            "英国", "法国", "德国", "意大利", "西班牙", "荷兰", "瑞典", "波兰", "比利时", "爱尔兰",
-            "日本", "新加坡", "澳大利亚", "印度", "阿联酋", "沙特阿拉伯", "土耳其", "埃及", "南非",
-        ]
-        # 易得客与 Amazon 后台站点映射，中文用于易得客区域，英文用于 Seller Central 账号切换
-        self.autoSiteMap = {
-            "美国": "United States",
-            "加拿大": "Canada",
-            "墨西哥": "Mexico",
-            "巴西": "Brazil",
-            "英国": "United Kingdom",
-            "法国": "France",
-            "德国": "Germany",
-            "意大利": "Italy",
-            "西班牙": "Spain",
-            "荷兰": "Netherlands",
-            "瑞典": "Sweden",
-            "波兰": "Poland",
-            "比利时": "Belgium",
-            "爱尔兰": "Ireland",
-            "日本": "Japan",
-            "新加坡": "Singapore",
-            "澳大利亚": "Australia",
-            "印度": "India",
-            "阿联酋": "United Arab Emirates",
-            "沙特阿拉伯": "Saudi Arabia",
-            "土耳其": "Turkey",
-            "埃及": "Egypt",
-            "南非": "South Africa",
-        }
-        self.autoSiteNames = list(self.autoSiteMap.keys())
+        # 赛狐 FBA 站点选择项，由 Main 统一维护
+        self.siteNames = list(self.main.siteNames)
+        # 赛狐店铺主体名选项，由 Main 统一维护
+        self.shopNames = list(self.main.shopNames)
+        # 赛狐店铺后缀映射，由 Main 统一维护
+        self.siteShopSuffixMap = dict(self.main.siteShopSuffixMap)
+        # 易得客与 Amazon 后台站点映射，由 Main 统一维护
+        self.autoSiteMap = dict(self.main.autoSiteMap)
+        # 易得客流程 GUI 站点下拉项，由 Main 统一维护
+        self.autoSiteNames = list(self.main.autoSiteNames)
         # 公共表单变量
         self.isOnlineVar = tk.StringVar(value="offline")
         self.sendEmailVar = tk.StringVar(value="no")
-        self.emailVar = tk.StringVar(value="")
+        self.emailVar = tk.StringVar(value=self.defaultEmail)
         self.sendWechatVar = tk.StringVar(value="no")
         self.wechatWebhookVar = tk.StringVar(value=self.defaultWechatWebhook)
-        self.wechatMobileVar = tk.StringVar(value="")
+        self.wechatMobileVar = tk.StringVar(value=self.defaultWechatMobile)
         # 赛狐流程表单变量
-        self.usernameVar = tk.StringVar(value="sales25")
-        self.passwordVar = tk.StringVar(value="")
+        self.usernameVar = tk.StringVar(value=self.defaultSaihuUsername)
+        self.passwordVar = tk.StringVar(value=self.defaultSaihuPassword)
         self.exportDirVar = tk.StringVar(value=self.defaultExportDir)
-        self.siteNameVar = tk.StringVar(value="美国")
-        self.signatureNameVar = tk.StringVar(value=self.defaultSignatureName)
-        self.signatureImageVar = tk.StringVar(value="")
+        self.siteNameVar = tk.StringVar(value=self.defaultSiteName)
+        self.shopNameVar = tk.StringVar(value=self.defaultShopBaseName)
+        self.startDateVar = tk.StringVar(value=self.defaultStartDate)
+        self.endDateVar = tk.StringVar(value=self.defaultEndDate)
+        self.templatePathVar = tk.StringVar(value=self.defaultTemplatePath)
         # 易得客流程表单变量
-        self.yidekeUsernameVar = tk.StringVar(value="")
-        self.yidekePasswordVar = tk.StringVar(value="")
-        self.autoSiteNameVar = tk.StringVar(value="美国")
-        self.shopIpVar = tk.StringVar(value="")
-        self.shopPortVar = tk.StringVar(value="8888")
-        self.amazonEmailVar = tk.StringVar(value="")
-        self.amazonPasswordVar = tk.StringVar(value="")
+        self.yidekeUsernameVar = tk.StringVar(value=self.defaultYidekeUsername)
+        self.yidekePasswordVar = tk.StringVar(value=self.defaultYidekePassword)
+        self.autoSiteNameVar = tk.StringVar(value=self.defaultAutoSiteName)
+        self.amazonSiteNameVar = tk.StringVar(value=self.defaultAmazonSiteName)
+        self.shopIpVar = tk.StringVar(value=self.defaultShopIp)
+        self.shopPortVar = tk.StringVar(value=self.defaultShopPort)
+        self.amazonEmailVar = tk.StringVar(value=self.defaultAmazonEmail)
+        self.amazonPasswordVar = tk.StringVar(value=self.defaultAmazonPassword)
         self.popDirVar = tk.StringVar(value="")
         self.autoShipmentBox = None
         self.exportDirVar.trace_add("write", self.syncPopDir)
@@ -309,6 +386,17 @@ class RunGui:
         # 公共配置输入框横向拉伸，保证长 Webhook 与邮箱显示完整
         common.columnconfigure(1, weight=1)
         # 公共配置区已创建完成
+
+    def togglePassword(self, entry, button):
+        """切换密码输入框的显示与隐藏状态"""
+        if entry.cget("show") == "*":
+            entry.config(show="")
+            button.config(text="隐藏")
+            # 当前密码框已切换为明文显示
+        else:
+            entry.config(show="*")
+            button.config(text="显示")
+            # 当前密码框已恢复为隐藏显示
 
     def toggleEmail(self):
         """根据邮件开关启用或禁用邮箱输入框"""
@@ -399,20 +487,22 @@ $form.Dispose()
         self.refreshAutoShipmentIds()
         # 待处理货件编号展示已按新目录刷新
 
-    def selectSignatureImage(self):
-        """选择授权签名图片"""
-        initial = self.signatureImageVar.get().strip()
+    def selectTemplateFile(self):
+        """选择 POP 输出模板文件"""
+        initial = self.templatePathVar.get().strip()
         initialDir = str(Path(initial).parent) if initial else str(self.baseDir)
         path = filedialog.askopenfilename(
             initialdir=initialDir,
             filetypes=[
-                ("图片文件", "*.png;*.jpg;*.jpeg;*.bmp"),
+                ("POP 模板文件", "*.docx;*.pdf"),
+                ("Word 模板", "*.docx"),
+                ("PDF 模板", "*.pdf"),
                 ("所有文件", "*.*"),
             ],
         )
         if path:
-            self.signatureImageVar.set(path)
-            # 签名图片路径已写入表单
+            self.templatePathVar.set(path)
+            # POP 模板路径已写入表单
 
     def selectPopDir(self):
         """选择已完成导出的 POP PDF 存放目录"""
@@ -492,15 +582,51 @@ $form.Dispose()
         # 待处理货件编号展示已同步刷新
 
     def getAutoShipmentIds(self):
-        """从 POP PDF 文件名或兜底 JSON 读取易得客待处理货件编号"""
+        """优先从本轮 shipment_ids.json 读取易得客待处理货件编号"""
         shipmentIds = []
         seen = set()
         popDir = self.popDirVar.get().strip()
         popPath = Path(popDir) if popDir else None
 
+        jsonPaths = []
+        if popPath:
+            jsonPaths.append(popPath / "shipment_ids.json")
+        exportDir = self.exportDirVar.get().strip()
+        if exportDir:
+            jsonPaths.append(Path(exportDir) / "shipment_ids.json")
+
+        for jsonPath in jsonPaths:
+            # 优先读取赛狐本轮覆盖生成的 JSON，避免 POP 目录旧文件混入
+            if not jsonPath.is_file():
+                continue
+            try:
+                data = json.loads(jsonPath.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return [], f"{jsonPath} 解析失败"
+            if isinstance(data, list):
+                rawIds = data
+            elif isinstance(data, dict):
+                if "shipmentIds" in data:
+                    rawIds = data.get("shipmentIds") or []
+                elif "allShipmentIds" in data:
+                    rawIds = data.get("allShipmentIds") or []
+                else:
+                    rawIds = data.get("ids") or []
+            else:
+                rawIds = []
+            for item in rawIds:
+                shipmentId = str(item or "").strip().upper()
+                if not re.fullmatch(r"FBA[A-Z0-9]{6,}", shipmentId):
+                    continue
+                if shipmentId in seen:
+                    continue
+                seen.add(shipmentId)
+                shipmentIds.append(shipmentId)
+            return shipmentIds, str(jsonPath)
+
         if popPath and popPath.is_dir():
             for pdfPath in sorted(popPath.iterdir()):
-                # 优先从最终导出的 POP PDF 文件名提取货件编号
+                # 没有本轮 JSON 时，才兜底从最终导出的 POP PDF 文件名提取货件编号
                 if not pdfPath.is_file() or pdfPath.suffix.lower() != ".pdf":
                     continue
                 match = re.search(r"(FBA[A-Z0-9]{6,})", pdfPath.stem, re.IGNORECASE)
@@ -512,39 +638,7 @@ $form.Dispose()
                 seen.add(shipmentId)
                 shipmentIds.append(shipmentId)
             if shipmentIds:
-                return shipmentIds, "POP PDF 文件名"
-
-        jsonPaths = []
-        if popPath:
-            jsonPaths.append(popPath / "shipment_ids.json")
-        exportDir = self.exportDirVar.get().strip()
-        if exportDir:
-            jsonPaths.append(Path(exportDir) / "shipment_ids.json")
-
-        for jsonPath in jsonPaths:
-            # POP 文件名未提取到时，读取赛狐流程生成的兜底 JSON
-            if not jsonPath.is_file():
-                continue
-            try:
-                data = json.loads(jsonPath.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                continue
-            if isinstance(data, list):
-                rawIds = data
-            elif isinstance(data, dict):
-                rawIds = data.get("shipmentIds") or data.get("allShipmentIds") or data.get("ids") or []
-            else:
-                rawIds = []
-            for item in rawIds:
-                shipmentId = str(item or "").strip().upper()
-                if not re.fullmatch(r"FBA[A-Z0-9]{6,}", shipmentId):
-                    continue
-                if shipmentId in seen:
-                    continue
-                seen.add(shipmentId)
-                shipmentIds.append(shipmentId)
-            if shipmentIds:
-                return shipmentIds, str(jsonPath)
+                return shipmentIds, "POP PDF 文件名（兜底）"
 
         return shipmentIds, ""
 
@@ -593,14 +687,16 @@ $form.Dispose()
         }
 
     def buildSaihuConfig(self):
-        """校验赛狐配置并组装 FbaClaim 入参"""
+        """校验赛狐配置并组装 Saihu 入参"""
         common = self.buildCommonConfig()
         username = self.usernameVar.get().strip()
         password = self.passwordVar.get()
         exportDir = self.exportDirVar.get().strip()
         siteName = self.siteNameVar.get().strip()
-        signatureName = self.signatureNameVar.get().strip()
-        signatureImage = self.signatureImageVar.get().strip()
+        shopName = self.shopNameVar.get().strip()
+        startDate = self.startDateVar.get().strip()
+        endDate = self.endDateVar.get().strip()
+        templatePath = self.templatePathVar.get().strip()
 
         # 校验赛狐账号密码
         if not username:
@@ -617,22 +713,42 @@ $form.Dispose()
             raise ValueError("请选择筛选站点")
         if siteName not in self.siteNames:
             raise ValueError(f"暂不支持该筛选站点: {siteName}")
-        # 校验签名信息
-        if not signatureName:
-            raise ValueError("请填写签名姓名")
-        if not signatureImage:
-            raise ValueError("请选择签名图片")
-        signaturePath = Path(signatureImage)
-        if not signaturePath.is_file():
-            raise ValueError(f"签名图片不存在: {signatureImage}")
+        # 校验赛狐店铺必须选择具体店铺
+        if not shopName:
+            raise ValueError("请选择筛选店铺")
+        if shopName not in self.shopNames:
+            raise ValueError(f"暂不支持该筛选店铺: {shopName}")
+        if siteName not in self.siteShopSuffixMap:
+            raise ValueError(f"暂未配置该站点的店铺后缀: {siteName}")
+        fullShopName = f"{shopName}-{self.siteShopSuffixMap[siteName]}"
+        # 校验赛狐筛选日期，格式固定为 YYYY-MM-DD
+        if not startDate:
+            raise ValueError("请填写开始时间")
+        if not endDate:
+            raise ValueError("请填写结束时间")
+        try:
+            startDateValue = datetime.strptime(startDate, "%Y-%m-%d").date()
+            endDateValue = datetime.strptime(endDate, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("开始时间和结束时间格式必须为 YYYY-MM-DD") from exc
+        if startDateValue > endDateValue:
+            raise ValueError("开始时间不能晚于结束时间")
+        # 校验 POP 模板文件，支持 Word 与 PDF 两种模板
+        if not templatePath:
+            raise ValueError("请选择模板文件")
+        templateFile = Path(templatePath)
+        if not templateFile.is_file():
+            raise ValueError(f"模板文件不存在: {templatePath}")
+        if templateFile.suffix.lower() not in (".docx", ".pdf"):
+            raise ValueError("模板文件仅支持 .docx 或 .pdf")
         # 赛狐流程实际发送 POP 邮件，开启邮件时必须填写邮箱
         if common["sendEmail"] and not common["email"]:
             raise ValueError("选择发送邮件时必须填写接收邮箱")
 
         page = ChromiumPage()
-        # 赛狐流程入参：页面实例、账号、导出目录、站点与签名信息
+        # 赛狐流程入参：页面实例、账号、导出目录、站点与模板信息
         config = {
-            # 当前 Chrome 页面实例，由 FbaClaim 接管赛狐页面
+            # 当前 Chrome 页面实例，由 Saihu 接管赛狐页面
             "page": page,
             # 赛狐登录账号密码
             "username": username,
@@ -642,9 +758,15 @@ $form.Dispose()
             "baseDir": str(self.baseDir),
             # FBA 货件筛选站点
             "siteName": siteName,
-            # POP 模板中的授权签名姓名与签名图片
-            "signatureName": signatureName,
-            "signatureImagePath": str(signaturePath.resolve()),
+            # FBA 货件筛选店铺
+            "shopName": fullShopName,
+            # GUI 选择的店铺主体名
+            "shopBaseName": shopName,
+            # FBA 货件筛选更新时间范围
+            "startDate": startDate,
+            "endDate": endDate,
+            # POP 输出模板，支持 Word 模板或 PDF 模板
+            "templatePath": str(templateFile.resolve()),
         }
         config.update(common)
         return config
@@ -655,6 +777,7 @@ $form.Dispose()
         yidekeUsername = self.yidekeUsernameVar.get().strip()
         yidekePassword = self.yidekePasswordVar.get()
         autoSiteName = self.autoSiteNameVar.get().strip()
+        amazonSiteName = self.amazonSiteNameVar.get().strip()
         shopIp = self.shopIpVar.get().strip()
         shopPort = self.shopPortVar.get().strip()
         amazonEmail = self.amazonEmailVar.get().strip()
@@ -666,6 +789,11 @@ $form.Dispose()
             raise ValueError("请选择易得客店铺站点")
         if autoSiteName not in self.autoSiteNames:
             raise ValueError(f"暂不支持该易得客店铺站点: {autoSiteName}")
+        # 校验 Amazon 后台站点，该站点只用于 Seller Central 账号选择和站点切换
+        if not amazonSiteName:
+            raise ValueError("请选择 Amazon 后台站点")
+        if amazonSiteName not in self.autoSiteNames:
+            raise ValueError(f"暂不支持该 Amazon 后台站点: {amazonSiteName}")
         # 校验 POP PDF 目录
         if not popDir:
             raise ValueError("请选择已完成导出存放 POP 文件的目录")
@@ -693,8 +821,10 @@ $form.Dispose()
             # 易得客登录账号密码
             "yidekeUsername": yidekeUsername,
             "yidekePassword": yidekePassword,
-            # 店铺站点会同时影响易得客进店与 Amazon 后台站点切换
+            # 店铺站点只影响易得客进店访问
             "autoSiteName": autoSiteName,
+            # Amazon 后台站点只影响 Seller Central 账号选择和站点切换
+            "amazonSiteName": amazonSiteName,
             # 店铺 IP 与调试端口用于接管易得客浏览器
             "shopIp": shopIp,
             "shopPort": int(shopPort),
@@ -736,7 +866,10 @@ $form.Dispose()
         self.appendLog(self.saihuPane.logText, "开始运行赛狐流程...\n")
         self.appendLog(self.saihuPane.logText, f"运行环境: {'线上' if config.get('isOnline') else '线下'}\n")
         self.appendLog(self.saihuPane.logText, f"筛选站点: {config.get('siteName')}\n")
+        self.appendLog(self.saihuPane.logText, f"筛选店铺: {config.get('shopName')}\n")
+        self.appendLog(self.saihuPane.logText, f"筛选时间: {config.get('startDate')} 至 {config.get('endDate')}\n")
         self.appendLog(self.saihuPane.logText, f"导出目录: {config.get('exportDir')}\n")
+        self.appendLog(self.saihuPane.logText, f"模板文件: {config.get('templatePath')}\n")
         self.appendLog(self.saihuPane.logText, f"邮件通知: {'发送' if config.get('sendEmail') else '不发送'}\n")
         # 后台线程执行耗时浏览器流程，避免 GUI 窗口卡住
         self.worker = threading.Thread(target=self.runSaihuTask, args=(config,), daemon=True)
@@ -761,6 +894,7 @@ $form.Dispose()
         self.autoPane.statusVar.set("运行中")
         self.appendLog(self.autoPane.logText, "开始运行易得客流程...\n")
         self.appendLog(self.autoPane.logText, f"店铺站点: {config.get('autoSiteName')}\n")
+        self.appendLog(self.autoPane.logText, f"Amazon后台站点: {config.get('amazonSiteName')}\n")
         self.appendLog(self.autoPane.logText, f"POP目录: {config.get('popDir') or '未配置'}\n")
         self.appendLog(self.autoPane.logText, f"货件编号来源: {config.get('shipmentSource') or '未识别'}\n")
         self.appendLog(self.autoPane.logText, f"企业微信通知: {'发送' if config.get('sendWechat') else '不发送'}\n")
@@ -776,7 +910,7 @@ $form.Dispose()
         sys.stdout = self
         sys.stderr = self
         try:
-            FbaClaim(config).run()
+            self.main.runSaihu(config)
             self.logQueue.put((self.currentLogText, "\n赛狐流程任务完成。\n"))
             self.root.after(0, lambda: self.currentStatusVar.set("已完成"))
         except Exception:
@@ -796,7 +930,7 @@ $form.Dispose()
         sys.stdout = self
         sys.stderr = self
         try:
-            Auto(config).run()
+            self.main.runAuto(config)
             self.logQueue.put((self.currentLogText, "\n易得客流程任务完成。\n"))
             self.root.after(0, lambda: self.currentStatusVar.set("已完成"))
         except Exception:
@@ -860,27 +994,41 @@ $form.Dispose()
         # 回填公共配置
         self.isOnlineVar.set("online" if data.get("isOnline") else "offline")
         self.sendEmailVar.set("yes" if data.get("sendEmail") else "no")
-        self.emailVar.set(str(data.get("email") or "").strip())
+        self.emailVar.set(str(data.get("email") or self.defaultEmail).strip())
         self.sendWechatVar.set("yes" if data.get("sendWechat") else "no")
         self.wechatWebhookVar.set(str(data.get("wechatWebhook") or self.defaultWechatWebhook).strip())
-        self.wechatMobileVar.set(str(data.get("wechatMobile") or "").strip())
+        self.wechatMobileVar.set(str(data.get("wechatMobile") or self.defaultWechatMobile).strip())
 
         # 回填赛狐配置
         self.usernameVar.set(str(data.get("username") or self.usernameVar.get()).strip())
-        self.passwordVar.set(str(data.get("password") or ""))
+        self.passwordVar.set(str(data.get("password") or self.defaultSaihuPassword))
         self.exportDirVar.set(str(data.get("exportDir") or self.defaultExportDir).strip())
-        self.siteNameVar.set(str(data.get("siteName") or "美国").strip())
-        self.signatureNameVar.set(str(data.get("signatureName") or self.defaultSignatureName).strip())
-        self.signatureImageVar.set(str(data.get("signatureImagePath") or "").strip())
+        self.siteNameVar.set(str(data.get("siteName") or self.defaultSiteName).strip())
+        savedShopName = str(data.get("shopBaseName") or data.get("shopName") or self.defaultShopBaseName).strip()
+        for siteSuffix in self.siteShopSuffixMap.values():
+            suffixText = f"-{siteSuffix}"
+            if savedShopName.endswith(suffixText):
+                savedShopName = savedShopName[:-len(suffixText)]
+                break
+        if savedShopName not in self.shopNames:
+            savedShopName = self.defaultShopBaseName
+        self.shopNameVar.set(savedShopName)
+        self.startDateVar.set(str(data.get("startDate") or self.defaultStartDate).strip())
+        self.endDateVar.set(str(data.get("endDate") or self.defaultEndDate).strip())
+        savedTemplatePath = str(data.get("templatePath") or self.defaultTemplatePath).strip()
+        if not Path(savedTemplatePath).is_file():
+            savedTemplatePath = self.defaultTemplatePath
+        self.templatePathVar.set(savedTemplatePath)
 
         # 回填易得客配置
-        self.yidekeUsernameVar.set(str(data.get("yidekeUsername") or "").strip())
-        self.yidekePasswordVar.set(str(data.get("yidekePassword") or ""))
-        self.autoSiteNameVar.set(str(data.get("autoSiteName") or data.get("siteName") or "美国").strip())
-        self.shopIpVar.set(str(data.get("shopIp") or "").strip())
-        self.shopPortVar.set(str(data.get("shopPort") or "8888").strip())
-        self.amazonEmailVar.set(str(data.get("amazonEmail") or "").strip())
-        self.amazonPasswordVar.set(str(data.get("amazonPassword") or ""))
+        self.yidekeUsernameVar.set(str(data.get("yidekeUsername") or self.defaultYidekeUsername).strip())
+        self.yidekePasswordVar.set(str(data.get("yidekePassword") or self.defaultYidekePassword))
+        self.autoSiteNameVar.set(str(data.get("autoSiteName") or data.get("siteName") or self.defaultAutoSiteName).strip())
+        self.amazonSiteNameVar.set(str(data.get("amazonSiteName") or data.get("autoSiteName") or data.get("siteName") or self.defaultAmazonSiteName).strip())
+        self.shopIpVar.set(str(data.get("shopIp") or self.defaultShopIp).strip())
+        self.shopPortVar.set(str(data.get("shopPort") or self.defaultShopPort).strip())
+        self.amazonEmailVar.set(str(data.get("amazonEmail") or self.defaultAmazonEmail).strip())
+        self.amazonPasswordVar.set(str(data.get("amazonPassword") or self.defaultAmazonPassword))
         self.popDirVar.set(self.exportDirVar.get().strip() or self.defaultExportDir)
 
     def saveConfig(self):
@@ -898,15 +1046,19 @@ $form.Dispose()
             "username": self.usernameVar.get().strip(),
             "password": self.passwordVar.get(),
             "exportDir": self.exportDirVar.get().strip() or self.defaultExportDir,
-            "siteName": self.siteNameVar.get().strip() or "美国",
-            "signatureName": self.signatureNameVar.get().strip() or self.defaultSignatureName,
-            "signatureImagePath": self.signatureImageVar.get().strip(),
+            "siteName": self.siteNameVar.get().strip() or self.defaultSiteName,
+            "shopName": self.shopNameVar.get().strip() or self.defaultShopBaseName,
+            "shopBaseName": self.shopNameVar.get().strip() or self.defaultShopBaseName,
+            "startDate": self.startDateVar.get().strip() or self.defaultStartDate,
+            "endDate": self.endDateVar.get().strip() or self.defaultEndDate,
+            "templatePath": self.templatePathVar.get().strip() or self.defaultTemplatePath,
             # 易得客流程配置
             "yidekeUsername": self.yidekeUsernameVar.get().strip(),
             "yidekePassword": self.yidekePasswordVar.get(),
-            "autoSiteName": self.autoSiteNameVar.get().strip() or "美国",
+            "autoSiteName": self.autoSiteNameVar.get().strip() or self.defaultAutoSiteName,
+            "amazonSiteName": self.amazonSiteNameVar.get().strip() or self.autoSiteNameVar.get().strip() or self.defaultAmazonSiteName,
             "shopIp": self.shopIpVar.get().strip(),
-            "shopPort": self.shopPortVar.get().strip() or "8888",
+            "shopPort": self.shopPortVar.get().strip() or self.defaultShopPort,
             "amazonEmail": self.amazonEmailVar.get().strip(),
             "amazonPassword": self.amazonPasswordVar.get(),
             # 易得客 POP 目录默认跟随赛狐导出目录，保证两段流程衔接

@@ -1,6 +1,7 @@
 import os
 import time
 import base64
+import ctypes
 from pathlib import Path
 
 import ddddocr
@@ -44,30 +45,98 @@ class SaiHuERPLogin:
                 time.sleep(5)
                 login = self.page.ele('x://span[text()="商品"]', timeout=5)
                 if login:
-                    inform = self.page.ele('x://div[@class="title_container"]')
-                    # 检查是否弹出广告通知
-                    if inform:
-                        next_button = self.page.ele('x://div[@class="announcement_dialog_footer"]/button/span')
-                        # 检查该广告是否只存在一个关闭按钮
-                        if next_button and next_button.text == '下一条':
-                            # 执行对应操作
-                            print("按钮文本是'下一条'")
-                            for _ in range(20):
-                                if not next_button:
-                                    break
-                                if next_button.text != '下一条':
-                                    break
-                                next_button.click()
-                                time.sleep(0.5)
-                                next_button = self.page.ele('x://div[@class="announcement_dialog_footer"]/button/span')
-                            close_button = self.page.ele('x://div[@class="announcement_dialog_footer"]/button/span[text()="关闭"]')
-                            if close_button:
-                                close_button.click()
-                        else:
-                            next_button = self.page.ele('x://div[@class="announcement_dialog_footer"]/button/span[text()="关闭"]')
-                            next_button.click()
+                    self.closeNotice()
                     return True
             return False
+        self.closeNotice()
+        return True
+
+    def hasNotice(self):
+        """判断当前页面是否存在可见的赛狐公告弹窗"""
+        script = """
+        const keywords = ['重要通知', '公告', '操作指引', '下一条', '最新活动'];
+        const nodes = Array.from(document.querySelectorAll('.el-dialog__wrapper, .el-dialog, [class*="announcement"]'));
+        return nodes.some(node => {
+            const style = window.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            const visible = style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && style.opacity !== '0'
+                && rect.width > 0
+                && rect.height > 0;
+            return visible && keywords.some(keyword => (node.innerText || '').includes(keyword));
+        });
+        """
+        try:
+            return bool(self.page.run_js(script))
+        except Exception:
+            return False
+
+    def clickNotice(self):
+        """尝试点击赛狐公告弹窗中的下一条或关闭按钮"""
+        script = """
+        const keywords = ['重要通知', '公告', '操作指引', '下一条', '最新活动'];
+        const labels = ['下一条', '关闭', '我知道了', '知道了', '确定', '完成'];
+        const dialogs = Array.from(document.querySelectorAll('.el-dialog__wrapper, .el-dialog, [class*="announcement"]'))
+            .filter(node => {
+                const style = window.getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                const visible = style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && style.opacity !== '0'
+                    && rect.width > 0
+                    && rect.height > 0;
+                return visible && keywords.some(keyword => (node.innerText || '').includes(keyword));
+            });
+        for (const dialog of dialogs) {
+            const buttons = Array.from(dialog.querySelectorAll('button, span, i, [class*="close"]'));
+            for (const label of labels) {
+                const button = buttons.find(item => (item.innerText || '').trim().includes(label));
+                if (button) {
+                    button.click();
+                    return label;
+                }
+            }
+            const closeIcon = buttons.find(item => (item.className || '').toString().includes('close'));
+            if (closeIcon) {
+                closeIcon.click();
+                return 'closeIcon';
+            }
+        }
+        return '';
+        """
+        try:
+            return self.page.run_js(script) or ""
+        except Exception:
+            return ""
+
+    def waitNotice(self):
+        """等待用户手动关闭赛狐公告弹窗"""
+        print("检测到赛狐公告弹窗，自动关闭失败，等待用户手动关闭。", flush=True)
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "检测到赛狐公告弹窗，但未找到可自动点击的关闭方式。\\n请手动关闭公告弹窗，关闭完成后点击“确定”，流程会继续等待页面恢复。",
+            "赛狐公告处理",
+            0x40 | 0x40000,
+        )
+        while self.hasNotice():
+            time.sleep(1)
+        print("赛狐公告弹窗已关闭，继续后续流程。", flush=True)
+
+    def closeNotice(self):
+        """登录完成后关闭赛狐公告弹窗，必要时等待人工关闭"""
+        for _ in range(20):
+            if not self.hasNotice():
+                return True
+            clicked = self.clickNotice()
+            if clicked:
+                print(f"已处理赛狐公告按钮: {clicked}", flush=True)
+                time.sleep(1)
+                continue
+            self.waitNotice()
+            return True
+        if self.hasNotice():
+            self.waitNotice()
         return True
 
     def img_code(self, img_data):
@@ -89,8 +158,8 @@ if __name__ == '__main__':
     page = ChromiumPage()
     login_config = SaiHuERPLogin(
         page=page,
-        username="",
-        password="",
+        username="sales25",
+        password="Sales123...",
         img_path=r'C:\Users\admin\Desktop'
     )
 

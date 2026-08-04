@@ -10,7 +10,7 @@ class Wechat:
 
     def __init__(self, config=None):
         # 默认群机器人 Webhook，可由 GUI 配置覆盖
-        self.defaultWebhook = ""
+        self.defaultWebhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2"
         # 默认 @ 手机号，可由 GUI 配置覆盖
         self.defaultMobile = ""
         # 请求超时时间
@@ -127,7 +127,7 @@ class Wechat:
 if __name__ == "__main__":
     # 本文件独立调试配置
     config = {
-        "wechatWebhook": "",
+        "wechatWebhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2",
         "wechatMobile": "",
         "email": "test@example.com",
     }

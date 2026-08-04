@@ -401,8 +401,8 @@ class EdeckerClaim:
         else:
             self.shop_port = [int(ports)]
         self.base_dir = Path(config.get("baseDir") or PopExport.getBaseDir())
-        self.pod_awd = self.base_dir / "AWD亚马逊分销POD.pdf"
-        self.pod_fba = self.base_dir / "FBA直发POD.pdf"
+        self.pod_awd = self.base_dir / "AWD_POD.pdf"
+        self.pod_fba = self.base_dir / "FBA_POD.pdf"
         self.amazon_email = config.get("amazon_email") or config.get("amazonEmail") or ""
         self.amazon_password = config.get("amazon_password") or config.get("amazonPassword") or ""
         self.page = None
@@ -659,13 +659,13 @@ class EdeckerClaim:
             if not choose_btn:
                 raise Exception("没有找到交货证明上传框")
                 # 判断sort获取到的值
-                # sort = '亚马逊分销' 上传 AWD亚马逊分销POD.pdf 文件
-                # sort = 'Send to Amazon（视图）' 上传 FBA直发POD.pdf 文件
+                # sort = '亚马逊分销' 上传 AWD_POD.pdf 文件
+                # sort = 'Send to Amazon（视图）' 上传 FBA_POD.pdf 文件
             if sort == '亚马逊分销':
-                # 获取到的sort为亚马逊分销时，上传 AWD亚马逊分销POD.pdf 文件
+                # 获取到的sort为亚马逊分销时，上传 AWD_POD.pdf 文件
                 choose_btn.click.to_upload(str(self.pod_awd))
             else:
-                # 否则 sort = 'Send to Amazon（视图）' 上传 FBA直发POD.pdf 文件
+                # 否则 sort = 'Send to Amazon（视图）' 上传 FBA_POD.pdf 文件
                 choose_btn.click.to_upload(str(self.pod_fba))
             print("交货证明文件选择完成")
 
@@ -773,13 +773,13 @@ class EdeckerClaim:
         if not choose_btn:
             raise Exception("没有找到交货证明上传框")
         # 判断sort获取到的值
-        # sort = '亚马逊分销' 上传 AWD亚马逊分销POD.pdf 文件
-        # sort = 'Send to Amazon（视图）' 上传 FBA直发POD.pdf 文件
+        # sort = '亚马逊分销' 上传 AWD_POD.pdf 文件
+        # sort = 'Send to Amazon（视图）' 上传 FBA_POD.pdf 文件
         if sort == '亚马逊分销':
-            # 获取到的sort为亚马逊分销时，上传 AWD亚马逊分销POD.pdf 文件
+            # 获取到的sort为亚马逊分销时，上传 AWD_POD.pdf 文件
             choose_btn.click.to_upload(str(self.pod_awd))
         else:
-            # 否则 sort = 'Send to Amazon（视图）' 上传 FBA直发POD.pdf 文件
+            # 否则 sort = 'Send to Amazon（视图）' 上传 FBA_POD.pdf 文件
             choose_btn.click.to_upload(str(self.pod_fba))
         print("交货证明文件选择完成")
 
@@ -812,8 +812,8 @@ if __name__ == "__main__":
     # page = ChromiumPage()
     # config = {
     #     "page": page,
-    #     "username": "",
-    #     "password": "",
+    #     "username": "sales25",
+    #     "password": "Sales123...",
     #     "file_path": r"C:\Users\admin\Desktop",
     # }
     # test = Test(config)
@@ -821,9 +821,9 @@ if __name__ == "__main__":
 
     # 易得客调试（取消注释后单独运行）
     edecker_config = {
-        "yideke_username": "",
-        "yideke_password": "",
-        "shop_ip": "",
+        "yideke_username": "19167561839",
+        "yideke_password": "yxh643208yang",
+        "shop_ip": "54.201.27.19",
         "shop_port": 8888,
         "amazon_email": "",
         "amazon_password": "",

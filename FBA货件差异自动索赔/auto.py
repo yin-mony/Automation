@@ -26,8 +26,10 @@ class Auto:
         # 易得客登录信息
         self.yidekeUsername = config.get("yidekeUsername") or config.get("yideke_username") or ""
         self.yidekePassword = config.get("yidekePassword") or config.get("yideke_password") or ""
-        # 店铺站点，中文用于易得客区域，英文用于 Amazon 后台账号切换
+        # 店铺站点只用于易得客区域进店
         self.siteName = str(config.get("autoSiteName") or config.get("siteName") or "美国").strip()
+        # Amazon 后台站点只用于 Seller Central 账号选择和站点切换
+        self.amazonSiteName = str(config.get("amazonSiteName") or self.siteName).strip()
         self.siteEnglishMap = {
             "美国": "United States",
             "加拿大": "Canada",
@@ -53,7 +55,7 @@ class Auto:
             "埃及": "Egypt",
             "南非": "South Africa",
         }
-        self.siteEnglishName = self.siteEnglishMap.get(self.siteName, self.siteName)
+        self.siteEnglishName = self.siteEnglishMap.get(self.amazonSiteName, self.amazonSiteName)
         self.shipmentJsonName = "shipment_ids.json"
         # 店铺 IP 与调试端口
         shopIp = config.get("shopIp") or config.get("shop_ip") or config.get("ip")
@@ -69,10 +71,11 @@ class Auto:
         # Amazon 登录信息
         self.amazonEmail = config.get("amazonEmail") or config.get("amazon_email") or ""
         self.amazonPassword = config.get("amazonPassword") or config.get("amazon_password") or ""
-        # 项目资源与固定交货证明文件
+        # 项目资源与固定库存所有权证明文件
         self.baseDir = Path(config.get("baseDir") or PopExport.getBaseDir())
-        self.podAwd = self.baseDir / "AWD亚马逊分销POD.pdf"
-        self.podFba = self.baseDir / "FBA直发POD.pdf"
+        resourceDir = PopExport.getResourceDir()
+        self.podAwd = resourceDir / "AWD_POD.pdf"
+        self.podFba = resourceDir / "FBA_POD.pdf"
         # 已完成导出的 POP PDF 存放目录
         popDir = config.get("popDir") or config.get("pop_dir") or ""
         self.popDir = Path(str(popDir)) if str(popDir or "").strip() else None
@@ -221,13 +224,75 @@ class Auto:
         print(f"Amazon 登录后 URL: {self.page.url}", flush=True)
         return self.page
 
+    def getSearchInput(self, page, searchSelectors, timeout=3):
+        """按多个选择器查找 Amazon 货件编号搜索框"""
+        for selector in searchSelectors:
+            try:
+                searchInput = page.ele(selector, timeout=timeout)
+            except Exception:
+                searchInput = None
+            if searchInput:
+                return searchInput
+        return None
+
+    def enterShipmentPage(self, page, searchSelectors):
+        """通过 Amazon 菜单重新进入库存-货件页面，并返回货件编号搜索框"""
+        lastError = ""
+        for attempt in range(1, 3):
+            try:
+                # 打开 Amazon 左上角汉堡菜单
+                menuHost = page.ele('x://*[@data-test-tag="hamburger-menu"]', timeout=30)
+                menu = menuHost.shadow_root
+                menu.ele('x://div/img', timeout=30).click()
+                time.sleep(1)
+
+                # 先点击库存菜单，再点击货件入口
+                inventoryBtn = None
+                for text in ["库存", "Inventory"]:
+                    try:
+                        inventoryBtn = menu.ele(f'x://div/span[normalize-space()="{text}"]', timeout=5)
+                    except Exception:
+                        inventoryBtn = None
+                    if inventoryBtn:
+                        break
+                if not inventoryBtn:
+                    raise Exception("未找到库存菜单")
+                inventoryBtn.click()
+                time.sleep(3)
+                page.wait(1)
+
+                shipmentBtn = None
+                for text in ["货件", "Shipments"]:
+                    try:
+                        shipmentBtn = menu.ele(f'x://div/span[normalize-space()="{text}"]', timeout=5)
+                    except Exception:
+                        shipmentBtn = None
+                    if shipmentBtn:
+                        break
+                if not shipmentBtn:
+                    raise Exception("未找到货件菜单")
+                shipmentBtn.click()
+                time.sleep(5)
+
+                # 进入货件页后必须能找到搜索框
+                searchInput = self.getSearchInput(page, searchSelectors, timeout=5)
+                if searchInput:
+                    print("已通过库存-货件菜单进入货件列表页", flush=True)
+                    return searchInput
+                raise Exception("进入货件页面后未找到货件编号搜索框")
+            except Exception as exc:
+                lastError = str(exc)
+                print(f"第 {attempt} 次进入库存-货件失败：{lastError}", flush=True)
+                time.sleep(2)
+        raise Exception(f"重新进入库存-货件失败：{lastError}")
+
     def main(self):
         """在 Amazon 货件页面逐个处理货件并上传凭证"""
         page = self.page
         if not page:
             raise RuntimeError("未接管浏览器页面，无法执行易得客流程")
 
-        # 从 POP PDF 目录提取货件编号与文件路径
+        # 先建立 POP PDF 文件映射，后续上传交货证明时精确匹配货件编号
         shipmentIds = []
         popFileMap = {}
         seen = set()
@@ -240,38 +305,46 @@ class Auto:
                 if not match:
                     continue
                 shipmentId = match.group(1).upper()
+                if shipmentId not in popFileMap:
+                    popFileMap[shipmentId] = pdfPath
+
+        # 优先读取赛狐本轮覆盖生成的 shipment_ids.json，避免旧 POP 文件混入处理数量
+        jsonPath = self.popDir / self.shipmentJsonName if self.popDir else None
+        if jsonPath and jsonPath.is_file():
+            data = json.loads(jsonPath.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                rawIds = data
+            elif isinstance(data, dict):
+                if "shipmentIds" in data:
+                    rawIds = data.get("shipmentIds") or []
+                elif "allShipmentIds" in data:
+                    rawIds = data.get("allShipmentIds") or []
+                else:
+                    rawIds = data.get("ids") or []
+            else:
+                rawIds = []
+            for item in rawIds:
+                shipmentId = str(item or "").strip().upper()
+                if not re.fullmatch(r"FBA[A-Z0-9]{6,}", shipmentId):
+                    continue
                 if shipmentId in seen:
                     continue
                 seen.add(shipmentId)
                 shipmentIds.append(shipmentId)
-                popFileMap[shipmentId] = pdfPath
+            print(f"从本轮 shipment_ids.json 提取到 {len(shipmentIds)} 个货件编号: {jsonPath}", flush=True)
+            if not shipmentIds:
+                raise ValueError(f"本轮 shipment_ids.json 中没有可处理的货件编号: {jsonPath}")
+        else:
+            # 没有本轮 JSON 时才兜底使用 POP PDF 文件名
+            for shipmentId in popFileMap:
+                if shipmentId in seen:
+                    continue
+                seen.add(shipmentId)
+                shipmentIds.append(shipmentId)
             if shipmentIds:
-                print(f"从 POP 目录提取到 {len(shipmentIds)} 个货件编号", flush=True)
+                print(f"未找到 shipment_ids.json，兜底从 POP 目录提取到 {len(shipmentIds)} 个货件编号", flush=True)
             else:
                 print(f"POP 目录中未提取到货件编号: {self.popDir}", flush=True)
-
-        # POP 文件名未提取到时，读取赛狐流程生成的兜底 JSON
-        if not shipmentIds:
-            jsonPath = self.popDir / self.shipmentJsonName if self.popDir else None
-            if jsonPath and jsonPath.is_file():
-                data = json.loads(jsonPath.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    rawIds = data
-                elif isinstance(data, dict):
-                    rawIds = data.get("shipmentIds") or data.get("allShipmentIds") or data.get("ids") or []
-                else:
-                    rawIds = []
-                for item in rawIds:
-                    shipmentId = str(item or "").strip().upper()
-                    if not re.fullmatch(r"FBA[A-Z0-9]{6,}", shipmentId):
-                        continue
-                    if shipmentId in seen:
-                        continue
-                    seen.add(shipmentId)
-                    shipmentIds.append(shipmentId)
-                if shipmentIds:
-                    print(f"从兜底 JSON 提取到 {len(shipmentIds)} 个货件编号: {jsonPath}", flush=True)
-            if not shipmentIds:
                 raise ValueError("未找到可处理的货件编号")
 
         # 本轮易得客提交结果，流程结束后统一推送企业微信
@@ -292,6 +365,7 @@ class Auto:
             print("已切换为中文简体", flush=True)
 
         # 语言确认后再切换 Amazon 后台站点，已是目标站点时不重复切换
+        amazonSiteName = self.amazonSiteName
         allSiteNames = list(self.siteEnglishMap.keys())
         siteButtonCondition = " or ".join([f'contains(normalize-space(), "{siteName}")' for siteName in allSiteNames])
         switchEntry = None
@@ -314,8 +388,8 @@ class Auto:
         if not switchEntry:
             raise Exception("没有找到 Amazon 后台账号站点切换入口")
         switchText = " ".join(str(switchEntry.text or "").split())
-        if self.siteName in switchText:
-            print(f"Amazon 后台已是目标站点: {self.siteName}", flush=True)
+        if amazonSiteName in switchText:
+            print(f"Amazon 后台已是目标站点: {amazonSiteName}", flush=True)
         else:
             switchEntry.click()
             time.sleep(1)
@@ -327,9 +401,9 @@ class Auto:
             seeAll.click()
             time.sleep(1)
             page.ele(
-                f'x://*[normalize-space()="{self.siteName}" '
-                f'or contains(normalize-space(), "{self.siteName}（") '
-                f'or contains(normalize-space(), "{self.siteName} (")]',
+                f'x://*[normalize-space()="{amazonSiteName}" '
+                f'or contains(normalize-space(), "{amazonSiteName}（") '
+                f'or contains(normalize-space(), "{amazonSiteName} (")]',
                 timeout=20,
             ).click()
             time.sleep(1)
@@ -341,46 +415,86 @@ class Auto:
                 timeout=20,
             ).click()
             time.sleep(5)
-            print(f"Amazon 后台已切换到目标站点: {self.siteName}", flush=True)
+            print(f"Amazon 后台已切换到目标站点: {amazonSiteName}", flush=True)
 
         # 通过汉堡菜单进入库存货件页面
-        menuHost = page.ele('x://*[@data-test-tag="hamburger-menu"]', timeout=30)
-        menu = menuHost.shadow_root
-        menu.ele('x://div/img', timeout=30).click()
-        time.sleep(1)
-        menu.ele('x://div/span[text()="库存"]', timeout=20).click()
-        time.sleep(3)
-        page.wait(1)
-        menu.ele('x://div/span[text()="货件"]', timeout=20).click()
-        time.sleep(3)
-        print("已进入货件界面", flush=True)
+        searchSelectors = [
+            'x://input[@placeholder="按货件编号搜索"]',
+            'x://input[contains(@placeholder,"货件编号")]',
+            'x://input[contains(@placeholder,"Shipment") or contains(@placeholder,"shipment")]',
+            'x://input[contains(@aria-label,"货件编号") or contains(@aria-label,"Shipment")]',
+        ]
+        searchInput = self.enterShipmentPage(page, searchSelectors)
 
         # 清空上一次货件筛选条件
-        clearBtn = page.ele('x://span[text()="清除筛选条件"]', timeout=3)
+        try:
+            clearBtn = page.ele('x://span[text()="清除筛选条件"]', timeout=3)
+        except Exception:
+            clearBtn = None
         if clearBtn:
             clearBtn.click()
             time.sleep(1.5)
 
-        for index, shipmentId in enumerate(shipmentIds, start=1):
+        firstFailReasons = {}
+        retryShipmentIds = []
+        pendingShipmentIds = list(shipmentIds)
+        retryMode = False
+        index = 0
+        while pendingShipmentIds or (not retryMode and retryShipmentIds):
+            # 第一轮全部结束后，再统一处理失败货件
+            if not pendingShipmentIds and not retryMode and retryShipmentIds:
+                pendingShipmentIds = list(retryShipmentIds)
+                retryMode = True
+                index = 0
+                print(f"开始重新处理第一轮失败货件，共 {len(pendingShipmentIds)} 个", flush=True)
+            shipmentId = pendingShipmentIds.pop(0)
+            index += 1
+            currentTotal = len(retryShipmentIds) if retryMode else len(shipmentIds)
             detailPage = None
             shouldCloseDetail = False
+            detailOpenedInCurrentTab = False
             try:
-                print(f"开始处理货件 {index}/{len(shipmentIds)}：{shipmentId}", flush=True)
+                roundName = "重试" if retryMode else "处理"
+                print(f"开始{roundName}货件 {index}/{currentTotal}：{shipmentId}", flush=True)
 
                 # 搜索当前货件编号
-                page.ele('x://input[@placeholder="按货件编号搜索"]', timeout=15).input(f"{shipmentId}\n", clear=True)
+                searchInput = self.getSearchInput(page, searchSelectors, timeout=5)
+                if not searchInput:
+                    print("未找到货件编号搜索框，重新走库存-货件菜单后重试", flush=True)
+                    searchInput = self.enterShipmentPage(page, searchSelectors)
+                if not searchInput:
+                    raise Exception(f"没有找到货件编号搜索框，当前 URL: {page.url}")
+                searchInput.input(f"{shipmentId}\n", clear=True)
                 time.sleep(3)
                 print(f"已搜索货件编号：{shipmentId}", flush=True)
 
                 # 进入货件详情页
                 shipmentRow = page.ele(f'x://tr[contains(., "{shipmentId}")]', timeout=15)
                 print("已找到对应行", flush=True)
+                beforeTabIds = set(page.browser.tab_ids)
                 shipmentRow.ele('x:.//div[contains(@class, "awsui_t-left")]//a').click()
                 print("已进入对应的货件编号详情页", flush=True)
                 page.wait(3)
-                detailPage = page.browser.latest_tab
+                afterTabIds = set(page.browser.tab_ids)
+                newTabIds = [tabId for tabId in afterTabIds if tabId not in beforeTabIds]
+                if newTabIds:
+                    for tabId in newTabIds:
+                        tab = page.browser.get_tab(tabId)
+                        if shipmentId in (tab.url or ""):
+                            detailPage = tab
+                            break
+                    if not detailPage:
+                        detailPage = page.browser.get_tab(newTabIds[-1])
+                    shouldCloseDetail = True
+                else:
+                    latestTab = page.browser.latest_tab
+                    if latestTab and shipmentId in (latestTab.url or ""):
+                        detailPage = latestTab
+                        detailOpenedInCurrentTab = True
+                    else:
+                        detailPage = page
+                        detailOpenedInCurrentTab = True
                 detailPage.wait(3)
-                shouldCloseDetail = True
                 print("已切换到新详情页", flush=True)
 
                 print("当前详情页:", detailPage.url, flush=True)
@@ -451,6 +565,20 @@ class Auto:
                     raise Exception("没有识别到可操作商品行")
                 print(f"识别到 {len(productRows)} 行可操作商品", flush=True)
 
+                # 已提交过问题的商品行不重复上传与提交，避免同一货件重复开 CASE
+                submittedRowTexts = []
+                for productRow in productRows:
+                    productRowText = " ".join(productRow.text.split())
+                    if "已提交问题" in productRowText:
+                        submittedRowTexts.append(productRowText)
+                if submittedRowTexts:
+                    skipResults.append({
+                        "shipmentId": shipmentId,
+                        "reason": "页面商品行已提交问题",
+                    })
+                    print(f"货件商品行已提交问题，跳过重复操作：{shipmentId}", flush=True)
+                    continue
+
                 for rowIndex, productRow in enumerate(productRows, start=1):
                     # 商品行中会混入展开子行，因此以操作下拉框定位当前行差值
                     cells = productRow.eles('x:./kat-table-cell')
@@ -506,7 +634,32 @@ class Auto:
                     print(f"货件全部差值为0，已跳过上传：{shipmentId}", flush=True)
                     continue
 
-                # 上传交货证明文件
+                # 查找当前货件对应的 POP PDF，交货证明必须上传当前货件编号的 POP
+                popFile = popFileMap.get(shipmentId)
+                if not popFile and self.popDir and self.popDir.is_dir():
+                    for pdfPath in sorted(self.popDir.iterdir()):
+                        if not pdfPath.is_file() or pdfPath.suffix.lower() != ".pdf":
+                            continue
+                        if shipmentId in pdfPath.stem.upper():
+                            popFile = pdfPath
+                            popFileMap[shipmentId] = pdfPath
+                            break
+                if not popFile or not popFile.is_file():
+                    raise FileNotFoundError(f"未找到货件 {shipmentId} 对应的 POP PDF 文件")
+                if shipmentId not in popFile.stem.upper():
+                    raise ValueError(f"POP 文件与当前货件编号不匹配: {shipmentId} -> {popFile.name}")
+
+                # 根据货件创建来源选择库存所有权证明使用的内置 POD 文件
+                if sort == "亚马逊分销":
+                    podFile = self.podAwd
+                else:
+                    podFile = self.podFba
+                if not podFile.is_file():
+                    raise FileNotFoundError(f"库存所有权证明 POD 文件不存在: {podFile}")
+                if "_POD" not in podFile.stem.upper():
+                    raise ValueError(f"库存所有权证明文件命名异常: {podFile.name}")
+
+                # 上传交货证明文件：当前货件编号对应的 POP PDF
                 proofChooseBtn = detailPage.ele(
                     'x://div[contains(@class,"document-proof")]'
                     '[.//div[contains(text(),"交货证明")]]'
@@ -515,11 +668,8 @@ class Auto:
                 )
                 if not proofChooseBtn:
                     raise Exception("没有找到交货证明选择文件按钮框")
-                if sort == "亚马逊分销":
-                    proofChooseBtn.click.to_upload(str(self.podAwd))
-                else:
-                    proofChooseBtn.click.to_upload(str(self.podFba))
-                print("交货证明文件选择完成", flush=True)
+                proofChooseBtn.click.to_upload(str(popFile))
+                print(f"交货证明 POP 文件选择完成: {popFile.name}", flush=True)
 
                 proofUploadBtn = detailPage.ele(
                     'x://div[contains(@class,"document-proof")]'
@@ -543,19 +693,7 @@ class Auto:
                 else:
                     raise TimeoutError("交货证明上传后按钮未变为不可点击状态")
 
-                # 上传当前货件对应的 POP PDF 作为库存所有权证明
-                popFile = popFileMap.get(shipmentId)
-                if not popFile and self.popDir and self.popDir.is_dir():
-                    for pdfPath in sorted(self.popDir.iterdir()):
-                        if not pdfPath.is_file() or pdfPath.suffix.lower() != ".pdf":
-                            continue
-                        if shipmentId in pdfPath.stem.upper():
-                            popFile = pdfPath
-                            popFileMap[shipmentId] = pdfPath
-                            break
-                if not popFile or not popFile.is_file():
-                    raise FileNotFoundError(f"未找到货件 {shipmentId} 对应的 POP PDF 文件")
-
+                # 上传库存所有权证明文件：内置 POD 文件
                 ownershipChooseBtn = detailPage.ele(
                     'x://div[contains(@class,"document-proof")]'
                     '[.//div[contains(text(),"库存所有权证明")]]'
@@ -564,8 +702,8 @@ class Auto:
                 )
                 if not ownershipChooseBtn:
                     raise Exception("没有找到库存所有权证明选择文件按钮框")
-                ownershipChooseBtn.click.to_upload(str(popFile))
-                print(f"库存所有权证明文件选择完成: {popFile}", flush=True)
+                ownershipChooseBtn.click.to_upload(str(podFile))
+                print(f"库存所有权证明 POD 文件选择完成: {podFile.name}", flush=True)
 
                 ownershipUploadBtn = detailPage.ele(
                     'x://div[contains(@class,"document-proof")]'
@@ -588,6 +726,10 @@ class Auto:
                         break
                 else:
                     raise TimeoutError("库存所有权证明上传后按钮未变为不可点击状态")
+                print(
+                    f"提交前文件校验通过：交货证明={popFile.name}，库存所有权证明={podFile.name}",
+                    flush=True,
+                )
 
                 # 进入预览请求
                 detailPage.ele('x://kat-button[@label="预览您的请求"]', timeout=10).click()
@@ -686,12 +828,19 @@ class Auto:
                 })
                 print(f"货件提交成功，货件编号：{shipmentId}，CASE 问题编号：{caseId}", flush=True)
             except Exception as exc:
-                # 单个货件失败时记录并继续处理下一个
-                failResults.append({
-                    "shipmentId": shipmentId,
-                    "reason": str(exc),
-                })
-                print(f"货件处理失败，继续下一个：{shipmentId}，{exc}", flush=True)
+                # 第一轮失败只放入最后重试队列，重试失败才写入最终失败结果
+                if retryMode:
+                    failResults.append({
+                        "shipmentId": shipmentId,
+                        "reason": str(exc),
+                        "firstReason": firstFailReasons.get(shipmentId, ""),
+                    })
+                    print(f"货件重试后仍失败，需要人工处理：{shipmentId}，{exc}", flush=True)
+                else:
+                    firstFailReasons[shipmentId] = str(exc)
+                    if shipmentId not in retryShipmentIds:
+                        retryShipmentIds.append(shipmentId)
+                    print(f"货件处理失败，已加入最后重试队列：{shipmentId}，{exc}", flush=True)
                 continue
             finally:
                 if shouldCloseDetail and detailPage:
@@ -701,16 +850,36 @@ class Auto:
                     except Exception as exc:
                         print(f"关闭货件详情页失败：{shipmentId}，{exc}", flush=True)
                     time.sleep(1)
+                elif detailOpenedInCurrentTab and detailPage:
+                    try:
+                        page = detailPage
+                        self.page = page
+                        self.enterShipmentPage(page, searchSelectors)
+                        print(f"已通过库存-货件菜单返回货件列表页：{shipmentId}", flush=True)
+                    except Exception as exc:
+                        print(f"返回货件列表页失败：{shipmentId}，{exc}", flush=True)
 
         saveDir = self.popDir if self.popDir and self.popDir.is_dir() else self.baseDir
         # 使用时间戳避免覆盖历史运行结果
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        failedPath = ""
+        if failResults:
+            failedFile = saveDir / f"failed_shipments_{timestamp}.json"
+            failedData = {
+                "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "message": "以下货件自动重试后仍失败，需要人工手动处理。",
+                "failList": failResults,
+            }
+            failedFile.write_text(json.dumps(failedData, ensure_ascii=False, indent=2), encoding="utf-8")
+            failedPath = str(failedFile)
+            print(f"失败货件编号文件已保存，请人工处理: {failedFile}", flush=True)
         caseResultPath = saveDir / f"case_result_{timestamp}.json"
         caseData = {
             "createdAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "resultList": caseResults,
             "failList": failResults,
             "skipList": skipResults,
+            "failedPath": failedPath,
         }
         caseResultPath.write_text(json.dumps(caseData, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"CASE 汇总结果已保存: {caseResultPath}", flush=True)
@@ -757,17 +926,18 @@ class Auto:
 if __name__ == "__main__":
     # 本文件独立调试配置
     config = {
-        "yidekeUsername": "",
-        "yidekePassword": "",
+        "yidekeUsername": "19167561839",
+        "yidekePassword": "yxh643208yang",
         "autoSiteName": "美国",
-        "shopIp": "",
-        "shopPort": 9527,
-        "amazonEmail": "",
-        "amazonPassword": "",
+        "amazonSiteName": "美国",
+        "shopIp": "54.201.27.19",
+        "shopPort": 8888,
+        "amazonEmail": "happymike9@outlook.com",
+        "amazonPassword": "Happylife989.",
         "baseDir": str(PopExport.getBaseDir()),
         "popDir": str(PopExport.getBaseDir() / "output"),
         "sendWechat": False,
-        "wechatWebhook": "",
+        "wechatWebhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2",
         "wechatMobile": "",
         "email": "",
     }

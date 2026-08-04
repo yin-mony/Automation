@@ -2,9 +2,19 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ddddocr_datas, ddddocr_binaries, ddddocr_hiddenimports = collect_all('ddddocr')
+tkcalendar_datas, tkcalendar_binaries, tkcalendar_hiddenimports = collect_all('tkcalendar')
+babel_datas, babel_binaries, babel_hiddenimports = collect_all('babel')
 
 hiddenimports = [
+    'tkinter',
+    'tkinter.ttk',
+    'tkinter.filedialog',
+    'tkinter.messagebox',
+    'tkinter.scrolledtext',
+    '_tkinter',
+    'tkcalendar',
     'main',
+    'saihu',
     'test',
     'auto',
     'export',
@@ -13,28 +23,36 @@ hiddenimports = [
     'YidekeLogin',
     'docx',
     'docx2pdf',
+    'pdfplumber',
+    'reportlab',
+    'fitz',
     'DrissionPage',
     'psutil',
     'pywinauto',
 ]
 hiddenimports += collect_submodules('DrissionPage')
 hiddenimports += collect_submodules('docx')
+hiddenimports += collect_submodules('pdfplumber')
+hiddenimports += collect_submodules('reportlab')
+hiddenimports += collect_submodules('fitz')
 hiddenimports += ddddocr_hiddenimports
+hiddenimports += tkcalendar_hiddenimports
+hiddenimports += babel_hiddenimports
 
 a = Analysis(
     ['run.py'],
     pathex=[],
-    binaries=ddddocr_binaries,
+    binaries=ddddocr_binaries + tkcalendar_binaries + babel_binaries,
     datas=[
         ('db53060fa183_发票模板.docx', '.'),
         ('服务商模板.docx', '.'),
-        ('AWD亚马逊分销POD.pdf', '.'),
-        ('FBA直发POD.pdf', '.'),
-    ] + ddddocr_datas,
+        ('AWD_POD.pdf', '.'),
+        ('FBA_POD.pdf', '.'),
+    ] + ddddocr_datas + tkcalendar_datas + babel_datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=['hooks'],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['tk_runtime_hook.py'],
     excludes=[],
     noarchive=False,
     optimize=0,

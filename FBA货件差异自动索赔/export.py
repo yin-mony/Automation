@@ -37,6 +37,8 @@ class PopExport:
         self.templatePath = resourceDir / "db53060fa183_发票模板.docx"
         # 多 SKU 模板
         self.multiTemplatePath = resourceDir / "服务商模板.docx"
+        # GUI 选择的 POP 模板，未选择时沿用内置服务商模板
+        self.customTemplatePath = None
         # POP 输出目录
         self.exportDir = self.baseDir / "output"
         # 汇总表占位标签
@@ -62,11 +64,6 @@ class PopExport:
         self.multiItemPresetRows = 6
         # 多 SKU 商品表模板行高，用于超出预置行时同步下移签名表
         self.multiItemRowHeight = 457
-        # 授权签名姓名，默认沿用服务商模板
-        self.signatureName = "Xiaoyu Wang"
-        # 授权签名图片路径，为空时保留模板自带签名图片
-        self.signatureImagePath = ""
-
     def setParaText(self, paragraph, text):
         """设置段落文本，尽量保留首 run 样式"""
         if paragraph.runs:
@@ -134,89 +131,137 @@ class PopExport:
         self.setCellParaText(rightCell, 3, str(skuTotal))
         self.setCellParaText(rightCell, 4, str(unitTotal))
 
+    def getTableText(self, table):
+        """合并表格文本，用于识别模板中的业务表格"""
+        texts = []
+        for row in table.rows:
+            for cell in row.cells:
+                texts.append(str(cell.text or "").strip())
+        return " ".join(texts)
+
+    def isItemTable(self, table):
+        """判断表格是否为 Shipment Items 商品表"""
+        if not table.rows:
+            return False
+        headerText = " ".join(str(cell.text or "").strip() for cell in table.rows[0].cells)
+        headerText = re.sub(r"\s+", " ", headerText).lower()
+        return (
+            "fnsku" in headerText
+            and "seller sku" in headerText
+            and ("shipped quantity" in headerText or "quantity" in headerText)
+        )
+
+    def findItemTable(self, doc):
+        """按表头定位商品表，兼容 GUI 上传的成品 POP 模板"""
+        for table in doc.tables:
+            if self.isItemTable(table):
+                return table
+        return None
+
+    def findSummaryTable(self, doc):
+        """定位包含 Packing List Date 等字段的汇总表"""
+        for table in doc.tables:
+            if self.isItemTable(table):
+                continue
+            tableText = self.getTableText(table)
+            if "Packing List Date" in tableText and "Shipment ID" in tableText:
+                return table
+        return None
+
+    def fillAfterLabel(self, doc, label, text, clearNext=False):
+        """将指定标签后的第一个非空段落替换为当前货件值"""
+        if text is None:
+            return False
+        for index, para in enumerate(doc.paragraphs):
+            if label not in str(para.text or ""):
+                continue
+            targetIndex = index + 1
+            while targetIndex < len(doc.paragraphs) and not doc.paragraphs[targetIndex].text.strip():
+                targetIndex += 1
+            if targetIndex >= len(doc.paragraphs):
+                return False
+            self.setParaText(doc.paragraphs[targetIndex], str(text))
+            if clearNext:
+                nextIndex = targetIndex + 1
+                while nextIndex < len(doc.paragraphs) and not doc.paragraphs[nextIndex].text.strip():
+                    nextIndex += 1
+                if nextIndex < len(doc.paragraphs):
+                    nextText = str(doc.paragraphs[nextIndex].text or "").strip()
+                    stopWords = ("Amazon ID", "Ship To", "Packing List", "Shipment", "Unit Total")
+                    if nextText and not any(word in nextText for word in stopWords):
+                        self.setParaText(doc.paragraphs[nextIndex], "")
+            return True
+        return False
+
+    def fillSummaryParagraphs(self, doc, shipmentId, name, skuTotal, unitTotal, packingListDate=None):
+        """汇总字段不是表格时，替换标签区后的五个正文值段落"""
+        startIndex = None
+        for index, para in enumerate(doc.paragraphs):
+            paraText = str(para.text or "")
+            if "Packing List Date" in paraText and "Shipment ID" in paraText:
+                startIndex = index + 1
+                break
+        if startIndex is None:
+            return False
+
+        valueParas = []
+        labelWords = ("Packing List Date", "Shipment ID", "Shipment Name", "SKU Total", "Unit Total")
+        for para in doc.paragraphs[startIndex:]:
+            paraText = str(para.text or "").strip()
+            if "Shipment Items" in paraText:
+                break
+            if not paraText:
+                continue
+            if any(word in paraText for word in labelWords):
+                continue
+            valueParas.append(para)
+            if len(valueParas) >= 5:
+                break
+        if len(valueParas) < 5:
+            return False
+
+        values = [
+            packingListDate or "",
+            shipmentId,
+            str(name or ""),
+            str(skuTotal),
+            str(unitTotal),
+        ]
+        for para, value in zip(valueParas, values):
+            self.setParaText(para, value)
+        return True
+
     def fillCommon(self, doc, detailInfo, shipmentId, skuTotal, unitTotal):
         """填充单条/多条模板共用的 Ship From、Ship To、汇总表字段"""
         source = detailInfo.get("source")
-        # 当前模板第 10 段为 Ship From 地址
-        if len(doc.paragraphs) > 10 and source:
-            self.setParaText(doc.paragraphs[10], str(source))
-        # 当前模板第 11 段为 Ship From 地址后续空行
-        if len(doc.paragraphs) > 11:
-            self.setParaText(doc.paragraphs[11], "")
+        if source:
+            self.fillAfterLabel(doc, "Ship From", str(source), clearNext=True)
 
         fulfillmentCenterId = str(detailInfo.get("fulfillmentCenterId") or "").strip()
-        # 当前模板第 17 段为 Ship To 仓库编码段落
-        if len(doc.paragraphs) > 17 and fulfillmentCenterId:
-            para = doc.paragraphs[17]
+        if fulfillmentCenterId:
             centerCode = fulfillmentCenterId[:4]
-            newText = re.sub(r"\([^)]*\)", f"({centerCode})", para.text)
-            self.setParaText(para, newText)
+            self.fillAfterLabel(doc, "Ship To", f"Amazon Fulfillment Center ({centerCode})")
 
         packingListDate = self.formatDate(detailInfo.get("createTime"))
-        self.fillSummary(
-            doc.tables[0],
-            shipmentId,
-            detailInfo.get("name"),
-            skuTotal,
-            unitTotal,
-            packingListDate,
-        )
-
-    def getPictureSize(self, cell):
-        """读取模板签名图片原始尺寸，避免替换图片后破坏版式"""
-        extents = cell._tc.xpath(".//wp:extent")
-        if not extents:
-            return 3423920, 807720
-        try:
-            return int(extents[0].get("cx")), int(extents[0].get("cy"))
-        except (TypeError, ValueError):
-            return 3423920, 807720
-
-    def clearCellKeepPr(self, cell):
-        """清空单元格正文内容，但保留单元格属性和段落样式"""
-        oldPara = cell.paragraphs[0]._p if cell.paragraphs else None
-        oldParaPr = deepcopy(oldPara.find(qn("w:pPr"))) if oldPara is not None else None
-        tc = cell._tc
-        # 只移除正文节点，保留 tcPr 中的宽度、边框、内边距等模板样式
-        for child in list(tc):
-            if child.tag != qn("w:tcPr"):
-                tc.remove(child)
-        para = OxmlElement("w:p")
-        if oldParaPr is not None:
-            para.append(oldParaPr)
-        tc.append(para)
-        return cell.paragraphs[0]
-
-    def fillSignature(self, doc, detailInfo):
-        """填充授权签名姓名与签名图片"""
-        if len(doc.tables) < 4:
-            return
-
-        signatureName = str(
-            detailInfo.get("signatureName") or self.signatureName or "Xiaoyu Wang"
-        ).strip() or "Xiaoyu Wang"
-        signatureImagePath = str(
-            detailInfo.get("signatureImagePath") or self.signatureImagePath or ""
-        ).strip()
-
-        nameCell = doc.tables[3].rows[0].cells[0]
-        if len(nameCell.paragraphs) >= 2:
-            self.setParaText(nameCell.paragraphs[1], signatureName)
-        elif nameCell.paragraphs:
-            nameCell.add_paragraph(signatureName)
-
-        if not signatureImagePath:
-            return
-        imagePath = Path(signatureImagePath)
-        if not imagePath.is_file():
-            raise FileNotFoundError(f"签名图片不存在: {imagePath}")
-
-        imageCell = doc.tables[2].rows[1].cells[0]
-        width, height = self.getPictureSize(imageCell)
-        para = self.clearCellKeepPr(imageCell)
-        run = para.add_run()
-        # 按模板原签名图片尺寸写入，保持签名框版式不变
-        run.add_picture(str(imagePath), width=width, height=height)
+        summaryTable = self.findSummaryTable(doc)
+        if summaryTable:
+            self.fillSummary(
+                summaryTable,
+                shipmentId,
+                detailInfo.get("name"),
+                skuTotal,
+                unitTotal,
+                packingListDate,
+            )
+        else:
+            self.fillSummaryParagraphs(
+                doc,
+                shipmentId,
+                detailInfo.get("name"),
+                skuTotal,
+                unitTotal,
+                packingListDate,
+            )
 
     def fillSingle(self, itemTable, items):
         """单 MSKU 使用服务商模板，只保留表头和一行数据"""
@@ -314,6 +359,57 @@ class PopExport:
         # 删除几行商品预留行，就按模板商品行高同步上移右侧签名表
         self.shiftFloatY(doc.tables[2]._tbl, -deletedRows * rowHeight)
 
+    def shiftAnchorY(self, anchor, offsetEmu):
+        """移动浮动图片锚点的纵向偏移"""
+        positionV = anchor.find(qn("wp:positionV"))
+        posOffset = positionV.find(qn("wp:posOffset")) if positionV is not None else None
+        if posOffset is None:
+            return
+        try:
+            oldValue = int(posOffset.text or 0)
+        except (TypeError, ValueError):
+            return
+        posOffset.text = str(oldValue + offsetEmu)
+
+    def shiftShapeY(self, shape, offsetPoint):
+        """移动 VML 浮动文本框的 margin-top"""
+        style = shape.get("style") or ""
+        match = re.search(r"margin-top:([+-]?(?:\d+(?:\.\d*)?|\.\d+))pt", style)
+        if not match:
+            return
+        oldValue = float(match.group(1))
+        newValue = oldValue + offsetPoint
+        newStyle = (
+            style[:match.start(1)]
+            + f"{newValue:.2f}".rstrip("0").rstrip(".")
+            + style[match.end(1):]
+        )
+        shape.set("style", newStyle)
+
+    def shiftFloatingSignature(self, doc, offsetTwips):
+        """新模板中签名框是浮动对象，多 SKU 增行时同步下移"""
+        if offsetTwips <= 0:
+            return
+        offsetEmu = int(offsetTwips * 635)
+        offsetPoint = offsetTwips / 20
+        for anchor in doc._element.body.findall(".//" + qn("wp:anchor")):
+            extent = anchor.find(qn("wp:extent"))
+            if extent is None:
+                continue
+            try:
+                width = int(extent.get("cx") or 0)
+                height = int(extent.get("cy") or 0)
+            except (TypeError, ValueError):
+                continue
+            # 只移动签名图片一类的浮动对象，避免移动页眉横线等细长装饰线
+            if width > 1000000 and 200000 < height < 2000000:
+                self.shiftAnchorY(anchor, offsetEmu)
+        for shape in doc._element.body.findall(".//{urn:schemas-microsoft-com:vml}shape"):
+            style = shape.get("style") or ""
+            # 签名框是绝对定位文本框，按商品表新增高度整体下移
+            if "position:absolute" in style and "margin-top:" in style:
+                self.shiftShapeY(shape, offsetPoint)
+
     def fillMulti(self, itemTable, items):
         """多 MSKU 模板：预置行内填入；超出时复制空白行增行且保留行样式"""
         if not items:
@@ -325,6 +421,35 @@ class PopExport:
             self.setCellText(row.cells[0], str(it.get("fnSku") or ""))
             self.setCellText(row.cells[1], str(it.get("msku") or ""))
             self.setCellText(row.cells[2], str(it.get("quantity") or ""))
+
+    def fillItems(self, itemTable, items):
+        """按商品表表头写入 FNSKU、Seller SKU、Shipped Quantity"""
+        if not items:
+            return
+        self.ensureRows(itemTable, len(items))
+        self.keepRows(itemTable, len(items))
+
+        headers = [str(cell.text or "").strip().lower() for cell in itemTable.rows[0].cells]
+        fnIndex = None
+        skuIndex = None
+        qtyIndex = None
+        for index, header in enumerate(headers):
+            if "fnsku" in header:
+                fnIndex = index
+            elif "seller sku" in header:
+                skuIndex = index
+            elif "quantity" in header:
+                qtyIndex = index
+        if fnIndex is None or skuIndex is None or qtyIndex is None:
+            raise ValueError("POP 商品表缺少 FNSKU、Seller SKU 或 Shipped Quantity 列")
+
+        for index, item in enumerate(items):
+            row = itemTable.rows[index + 1]
+            for cell in row.cells:
+                self.setCellText(cell, "")
+            self.setCellText(row.cells[fnIndex], str(item.get("fnSku") or ""))
+            self.setCellText(row.cells[skuIndex], str(item.get("msku") or ""))
+            self.setCellText(row.cells[qtyIndex], str(item.get("quantity") or ""))
 
     def toPdf(self, docxPath):
         """将 docx 转为 pdf（Windows 需已安装 Microsoft Word）。"""
@@ -339,6 +464,230 @@ class PopExport:
                 print(f"DOCX 转 PDF 已生成，但 Word 退出异常，继续使用: {pdfPath}", flush=True)
                 return pdfPath
             raise RuntimeError(f"DOCX 转 PDF 失败（需安装 Microsoft Word）: {e}") from e
+        if not pdfPath.is_file() or pdfPath.stat().st_size <= 0:
+            raise RuntimeError(f"PDF 未生成: {pdfPath}")
+        return pdfPath
+
+    def buildPdf(self, detailInfo, templatePath, pdfPath, shipmentId, skuTotal, unitTotal):
+        """按 PDF 模板页面叠加当前货件数据，直接生成最终 POP PDF"""
+        try:
+            import fitz
+            import pdfplumber
+            from reportlab.lib import colors
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.utils import ImageReader
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+            from reportlab.platypus import Paragraph, Table, TableStyle
+            from reportlab.pdfgen import canvas
+            from xml.sax.saxutils import escape
+            from io import BytesIO
+        except Exception as exc:
+            raise RuntimeError(f"PDF 模板导出依赖缺失，请先安装 requirements.txt: {exc}") from exc
+
+        try:
+            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        except Exception:
+            pass
+
+        with pdfplumber.open(str(templatePath)) as pdf:
+            page = pdf.pages[0]
+            pageWidth = float(page.width)
+            pageHeight = float(page.height)
+            lines = page.lines
+
+            verticalLines = [
+                item for item in lines
+                if abs(float(item["x0"]) - float(item["x1"])) < 1
+                and float(item["bottom"]) - float(item["top"]) > 10
+            ]
+            tableGuide = [
+                item for item in verticalLines
+                if 145 <= float(item["x0"]) <= 155 and float(item["top"]) > 300
+            ]
+            if tableGuide:
+                guide = sorted(tableGuide, key=lambda item: float(item["top"]))[0]
+                tableTop = float(guide["top"])
+                tableBottom = float(guide["bottom"])
+            else:
+                tableTop = 349
+                tableBottom = 606
+
+            tableLeft = 14.5
+            tableRight = 574.5
+            tableCol1 = 150.0
+            tableCol2 = 506.5
+            for item in verticalLines:
+                xValue = float(item["x0"])
+                if 10 <= xValue <= 20 and abs(float(item["top"]) - tableTop) < 2:
+                    tableLeft = xValue
+                elif 570 <= xValue <= 580 and abs(float(item["top"]) - tableTop) < 2:
+                    tableRight = xValue
+                elif 145 <= xValue <= 155 and abs(float(item["top"]) - tableTop) < 2:
+                    tableCol1 = xValue
+                elif 500 <= xValue <= 512 and abs(float(item["top"]) - tableTop) < 2:
+                    tableCol2 = xValue
+
+            signatureLines = [
+                item for item in verticalLines
+                if float(item["top"]) > tableBottom + 2 and float(item["bottom"]) - float(item["top"]) > 20
+            ]
+            signatureImageBytes = None
+            if signatureLines:
+                signatureLeft = min(float(item["x0"]) for item in signatureLines)
+                signatureRight = max(float(item["x0"]) for item in signatureLines)
+                signatureTop = min(float(item["top"]) for item in signatureLines)
+                signatureBottom = max(float(item["bottom"]) for item in signatureLines)
+                signatureGap = max(14, signatureTop - tableBottom)
+                signatureHeight = signatureBottom - signatureTop
+            else:
+                signatureLeft = 14.5
+                signatureRight = 570.5
+                signatureTop = tableBottom + 18
+                signatureBottom = signatureTop + 82
+                signatureGap = 18
+                signatureHeight = 82
+
+            try:
+                fitzDoc = fitz.open(str(templatePath))
+                fitzPage = fitzDoc[0]
+                backgroundPix = fitzPage.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                backgroundImageBytes = backgroundPix.tobytes("png")
+                if signatureLines:
+                    clip = fitz.Rect(signatureLeft, signatureTop, signatureRight, signatureBottom)
+                    pix = fitzPage.get_pixmap(matrix=fitz.Matrix(2, 2), clip=clip, alpha=False)
+                    signatureImageBytes = pix.tobytes("png")
+                fitzDoc.close()
+            except Exception as exc:
+                raise RuntimeError(f"PDF 模板读取失败: {templatePath}") from exc
+
+        pdfCanvas = canvas.Canvas(str(pdfPath), pagesize=(pageWidth, pageHeight))
+        pdfCanvas.drawImage(
+            ImageReader(BytesIO(backgroundImageBytes)),
+            0,
+            0,
+            width=pageWidth,
+            height=pageHeight,
+            mask=None,
+        )
+        pdfCanvas.setFillColor(colors.white)
+        pdfCanvas.rect(14, pageHeight - 190, 307, 31, fill=1, stroke=0)
+        pdfCanvas.rect(327, pageHeight - 188, 245, 31, fill=1, stroke=0)
+        pdfCanvas.rect(94, pageHeight - 297, 230, 83, fill=1, stroke=0)
+
+        items = detailInfo.get("items") or []
+        itemCount = max(len(items), 1)
+        maxTableBottom = pageHeight - 130
+        rowHeight = 23
+        if tableTop + (itemCount + 1) * rowHeight + signatureGap + signatureHeight > maxTableBottom:
+            rowHeight = max(14, int((maxTableBottom - tableTop - signatureGap - signatureHeight) / (itemCount + 1)))
+        tableHeight = (itemCount + 1) * rowHeight
+        newTableBottom = tableTop + tableHeight
+        coverTableBottom = max(tableBottom, newTableBottom)
+        pdfCanvas.rect(tableLeft - 1, pageHeight - coverTableBottom - 2, tableRight - tableLeft + 2, coverTableBottom - tableTop + 4, fill=1, stroke=0)
+        pdfCanvas.rect(signatureLeft - 1, pageHeight - signatureBottom - 2, signatureRight - signatureLeft + 2, signatureBottom - signatureTop + 4, fill=1, stroke=0)
+
+        valueStyle = ParagraphStyle(
+            "valueStyle",
+            fontName="STSong-Light",
+            fontSize=8.5,
+            leading=10,
+            textColor=colors.black,
+        )
+        cellStyle = ParagraphStyle(
+            "cellStyle",
+            fontName="STSong-Light",
+            fontSize=7.6,
+            leading=9,
+            textColor=colors.black,
+        )
+        headerStyle = ParagraphStyle(
+            "headerStyle",
+            fontName="Helvetica-Bold",
+            fontSize=8,
+            leading=9,
+            textColor=colors.white,
+        )
+
+        source = str(detailInfo.get("source") or "")
+        sourcePara = Paragraph(escape(source), valueStyle)
+        sourcePara.wrapOn(pdfCanvas, 300, 30)
+        sourcePara.drawOn(pdfCanvas, 16, pageHeight - 184)
+
+        fulfillmentCenterId = str(detailInfo.get("fulfillmentCenterId") or "").strip()
+        centerCode = fulfillmentCenterId[:4]
+        shipToText = f"Amazon Fulfillment Center ({centerCode})" if centerCode else "Amazon Fulfillment Center"
+        shipToPara = Paragraph(escape(shipToText), valueStyle)
+        shipToPara.wrapOn(pdfCanvas, 230, 26)
+        shipToPara.drawOn(pdfCanvas, 329, pageHeight - 183)
+
+        pdfCanvas.setFillColor(colors.black)
+        pdfCanvas.setFont("STSong-Light", 8.5)
+        pdfCanvas.drawString(96, pageHeight - 227, self.formatDate(detailInfo.get("createTime")) or "")
+        pdfCanvas.drawString(96, pageHeight - 240, shipmentId)
+        namePara = Paragraph(escape(str(detailInfo.get("name") or "")), valueStyle)
+        namePara.wrapOn(pdfCanvas, 220, 28)
+        namePara.drawOn(pdfCanvas, 96, pageHeight - 265)
+        pdfCanvas.drawString(96, pageHeight - 275, str(skuTotal))
+        pdfCanvas.drawString(96, pageHeight - 289, str(unitTotal))
+
+        tableData = [[
+            Paragraph("FNSKU", headerStyle),
+            Paragraph("Seller SKU", headerStyle),
+            Paragraph("Shipped<br/>Quantity", headerStyle),
+        ]]
+        if items:
+            for item in items:
+                tableData.append([
+                    Paragraph(escape(str(item.get("fnSku") or "")), cellStyle),
+                    Paragraph(escape(str(item.get("msku") or "")), cellStyle),
+                    Paragraph(escape(str(item.get("quantity") or "")), cellStyle),
+                ])
+        else:
+            tableData.append([
+                Paragraph("", cellStyle),
+                Paragraph("", cellStyle),
+                Paragraph("", cellStyle),
+            ])
+
+        colWidths = [tableCol1 - tableLeft, tableCol2 - tableCol1, tableRight - tableCol2]
+        rowHeights = [rowHeight] + [rowHeight for _ in range(itemCount)]
+        itemTable = Table(tableData, colWidths=colWidths, rowHeights=rowHeights)
+        itemTable.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.black),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "STSong-Light"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#8c8c8c")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        itemTable.wrapOn(pdfCanvas, tableRight - tableLeft, tableHeight)
+        itemTable.drawOn(pdfCanvas, tableLeft, pageHeight - newTableBottom)
+
+        newSignatureTop = newTableBottom + signatureGap
+        newSignatureBottom = newSignatureTop + signatureHeight
+        if newSignatureBottom > pageHeight - 40:
+            newSignatureBottom = pageHeight - 40
+            newSignatureTop = newSignatureBottom - signatureHeight
+        if signatureImageBytes:
+            pdfCanvas.drawImage(
+                ImageReader(BytesIO(signatureImageBytes)),
+                signatureLeft,
+                pageHeight - newSignatureBottom,
+                width=signatureRight - signatureLeft,
+                height=signatureHeight,
+                mask=None,
+            )
+        else:
+            pdfCanvas.setStrokeColor(colors.black)
+            pdfCanvas.rect(signatureLeft, pageHeight - newSignatureBottom, signatureRight - signatureLeft, signatureHeight, fill=0, stroke=1)
+
+        pdfCanvas.save()
         if not pdfPath.is_file() or pdfPath.stat().st_size <= 0:
             raise RuntimeError(f"PDF 未生成: {pdfPath}")
         return pdfPath
@@ -367,32 +716,38 @@ class PopExport:
         docxPath = self.exportDir / f"{baseName}.docx"
         pdfPath = self.exportDir / f"{baseName}.pdf"
 
-        useMulti = len(items) > 1
         # 调试查看版式时可只保留 docx，不进入 PDF 转换
         keepDocx = bool(detailInfo.get("keepDocx"))
-        templatePath = self.multiTemplatePath
+        templatePath = Path(detailInfo.get("templatePath") or self.customTemplatePath or self.multiTemplatePath)
         # 模板不存在时提前报错，避免 copyfile 抛出不直观异常
         if not templatePath.is_file():
             raise FileNotFoundError(f"POP 模板不存在: {templatePath}")
+        if templatePath.suffix.lower() == ".pdf":
+            return str(self.buildPdf(detailInfo, templatePath, pdfPath, shipmentId, skuTotal, unitTotal))
+        if templatePath.suffix.lower() != ".docx":
+            raise ValueError(f"POP 模板仅支持 .docx 或 .pdf: {templatePath}")
 
         # 复制模板到临时 docx，填充后转 PDF
         copyfile(templatePath, docxPath)
         doc = Document(str(docxPath))
         # POP 模板至少需要汇总表与商品表
-        if len(doc.tables) < 2:
-            raise ValueError(f"POP 模板表格数量不足，至少需要 2 个表格: {templatePath}")
+        itemTable = self.findItemTable(doc)
+        if itemTable is None:
+            raise ValueError(f"POP 模板未找到 FNSKU/Seller SKU/Shipped Quantity 商品表: {templatePath}")
+        templateDataRows = max(len(itemTable.rows) - 1, 1)
+        itemRowHeight = self.getRowHeight(itemTable)
 
-        # 当前模板第 0 个表为汇总表，第 1 个表为商品表
+        # 当前货件公共信息写入模板正文或汇总表，商品明细按表头写入商品表
         self.fillCommon(doc, detailInfo, shipmentId, skuTotal, unitTotal)
-        self.fillSignature(doc, detailInfo)
-
-        itemTable = doc.tables[1]
-        if useMulti:
-            self.fillMulti(itemTable, items)
-            self.shiftSignature(doc, len(items))
+        self.fillItems(itemTable, items)
+        if len(doc.tables) >= 3:
+            if len(items) > self.multiItemPresetRows:
+                self.shiftSignature(doc, len(items))
+            elif len(items) < self.multiItemPresetRows:
+                self.shiftSingleSignature(doc, len(items))
         else:
-            self.fillSingle(itemTable, items)
-            self.shiftSingleSignature(doc, len(items))
+            extraRows = len(items) - templateDataRows
+            self.shiftFloatingSignature(doc, extraRows * itemRowHeight)
 
         doc.save(str(docxPath))
         if keepDocx:

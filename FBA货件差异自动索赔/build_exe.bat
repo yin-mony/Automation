@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\python.exe" (
@@ -10,26 +9,39 @@ if exist ".venv\Scripts\python.exe" (
   set "PY=python"
 )
 
-echo 使用 Python: %PY%
+echo Using Python: %PY%
 
-echo [1/3] 安装/更新依赖与 PyInstaller ...
+echo [1/4] Install project requirements ...
 "%PY%" -m pip install --upgrade pip -q
 "%PY%" -m pip install -r requirements.txt -q
-
-echo [2/3] 清理旧产物 ...
-if exist "dist\FBA货件差异自动索赔.exe" del /q "dist\FBA货件差异自动索赔.exe"
-
-echo [3/3] 打包「FBA货件差异自动索赔」...
-"%PY%" -m PyInstaller --clean --noconfirm FBA货件差异自动索赔.spec
 if errorlevel 1 goto :fail
 
+echo [2/4] Clean old dist files ...
+if exist "dist" (
+  for %%F in ("dist\*.exe") do del /q "%%~fF" 2>nul
+  if exist "dist\run_config.json" del /q "dist\run_config.json"
+) else (
+  mkdir "dist"
+)
+
+echo [3/4] Build exe with PyInstaller ...
+"%PY%" -c "import pathlib, subprocess, sys; spec=next(pathlib.Path('.').glob('*.spec')); sys.exit(subprocess.run([sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', str(spec)]).returncode)"
+if errorlevel 1 goto :fail
+
+echo [4/4] Copy runtime config ...
+if exist "run_config.json" (
+  copy /y "run_config.json" "dist\run_config.json" >nul
+  echo Copied run_config.json to dist.
+) else (
+  echo run_config.json not found, skip runtime config copy.
+)
+
 echo.
-echo 完成。产物: dist\FBA货件差异自动索赔.exe
-echo 说明: 目标机器需已安装 Chrome/Edge，DrissionPage 才能正常采集。
+echo Build complete. Please distribute the whole dist folder.
 pause
 exit /b 0
 
 :fail
-echo 打包失败。
+echo Build failed.
 pause
 exit /b 1

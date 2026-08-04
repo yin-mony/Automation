@@ -1,406 +1,173 @@
-"""FBA 货件差异查询与 POP 导出核心编排。"""
+"""FBA 货件差异自动索赔配置与流程调用入口。"""
 
-import json
-import re
-import ctypes
-import time
-from pathlib import Path
+from datetime import date, timedelta
 
 from DrissionPage import ChromiumPage
 
-from SaihuERPLogin import SaiHuERPLogin
-from email_util import deliver_outputs
+from auto import Auto
 from export import PopExport
+from saihu import Saihu
 
 
-class FbaClaim:
-    """赛狐 FBA 货件申收差异筛选、详情拉取与 POP 文档生成"""
+class Main:
+    """统一维护 GUI 默认配置，并调用赛狐流程与易得客流程"""
 
-    def __init__(self, config):
-        # 运行配置（GUI 或 main 块传入）
-        self.config = config
-        self.page = config["page"]
-        self.username = config["username"]
-        self.password = config["password"]
-        self.isOnline = bool(config.get("isOnline", False))
-        self.baseDir = Path(config.get("baseDir") or PopExport.getBaseDir())
-        # FBA 货件列表接口地址
-        self.listApiUrl = "https://www.sellfox.com/api/inbound/shipmentCommodity/page.json"
-        # FBA 货件详情接口地址
-        self.detailApiUrl = "https://www.sellfox.com/api/inbound/shipment/detail.json"
-        # 接口行数据里的货件 ID 字段名
-        self.shipmentIdKey = "amazonShipmentId"
-        # 申收差异字段名
-        self.diffKey = "quaRecDifference"
-        # SKU 明细里的申收差异字段名
-        self.itemDiffKey = "quantityRecDiff"
-        # 列表每页条数（赛狐最大 200）
-        self.pageSize = 200
-        # 默认筛选站点，从配置读取，未配置时使用美国
-        self.siteName = str(config.get("siteName") or "美国").strip()
-        # 无下拉大区的站点，站点面板中直接点击
-        self.directSiteNames = {
-            "日本", "新加坡", "澳大利亚", "印度", "阿联酋",
-            "沙特阿拉伯", "土耳其", "埃及", "南非",
+    def __init__(self):
+        # 项目根目录，用于定位资源文件、配置文件和默认输出目录
+        self.baseDir = PopExport.getBaseDir()
+        # GUI 本地缓存配置文件，删除后会按本类默认值重新生成
+        self.configFile = self.baseDir / "run_config.json"
+        # 默认 POP 输出目录，赛狐流程生成的 PDF 默认保存到这里
+        self.defaultExportDir = str(self.baseDir / "output")
+        # 默认 POP 模板文件，GUI 未选择模板时使用项目内置模板
+        self.defaultTemplatePath = str(PopExport.getResourceDir() / "服务商模板.docx")
+        # 默认运行环境，False 表示线下环境，True 表示线上环境
+        self.defaultIsOnline = False
+        # 默认邮件发送开关，False 表示不发送邮件
+        self.defaultSendEmail = False
+        # 默认邮件接收邮箱，用于 GUI 首次启动时回填
+        self.defaultEmail = "yinkaiyuan@bonison.net"
+        # 默认企业微信发送开关，False 表示不发送企业微信通知
+        self.defaultSendWechat = False
+        # 默认企业微信群机器人 Webhook，用于推送 CASE 结果汇总
+        self.defaultWechatWebhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2"
+        # 默认企业微信 @ 手机号，GUI 可按实际接收人修改
+        self.defaultWechatMobile = "18280194086"
+        # 默认赛狐账号，GUI 首次启动时回填
+        self.defaultSaihuUsername = "Manager-4"
+        # 默认赛狐密码，GUI 首次启动时回填
+        self.defaultSaihuPassword = "Bonison123456"
+        # 默认赛狐筛选站点
+        self.defaultSiteName = "美国"
+        # 默认赛狐店铺主体名，运行时会按站点拼接后缀
+        self.defaultShopBaseName = "Lydia deal"
+        # 默认易得客账号，GUI 首次启动时回填
+        self.defaultYidekeUsername = "19167561839"
+        # 默认易得客密码，GUI 首次启动时回填
+        self.defaultYidekePassword = "yxh643208yang"
+        # 默认易得客店铺站点，用于进店访问
+        self.defaultAutoSiteName = "美国"
+        # 默认 Amazon 后台站点，用于 Seller Central 站点切换
+        self.defaultAmazonSiteName = "美国"
+        # 默认店铺 IP，GUI 首次启动时回填
+        self.defaultShopIp = "54.201.27.19"
+        # 默认店铺调试端口，用于接管易得客浏览器
+        self.defaultShopPort = "8888"
+        # 默认 Amazon 登录邮箱，GUI 首次启动时回填
+        self.defaultAmazonEmail = "happymike9@outlook.com"
+        # 默认 Amazon 登录密码，GUI 首次启动时回填
+        self.defaultAmazonPassword = "Happylife989."
+        # 当前月份第一天，用于计算默认筛选时间
+        firstDayThisMonth = date.today().replace(day=1)
+        # 上月最后一天，用于默认结束时间
+        lastDayLastMonth = firstDayThisMonth - timedelta(days=1)
+        # 上月第一天，用于默认开始时间
+        firstDayLastMonth = lastDayLastMonth.replace(day=1)
+        # 默认赛狐筛选开始时间
+        self.defaultStartDate = firstDayLastMonth.strftime("%Y-%m-%d")
+        # 默认赛狐筛选结束时间
+        self.defaultEndDate = lastDayLastMonth.strftime("%Y-%m-%d")
+        # 赛狐支持筛选的站点名称
+        self.siteNames = [
+            "美国", "加拿大", "墨西哥", "巴西",
+            "英国", "法国", "德国", "意大利", "西班牙", "荷兰", "瑞典", "波兰", "比利时", "爱尔兰",
+            "日本", "新加坡", "澳大利亚", "印度", "阿联酋", "沙特阿拉伯", "土耳其", "埃及", "南非",
+        ]
+        # 赛狐支持筛选的店铺主体名，运行时根据站点补全后缀
+        self.shopNames = [
+            "Hoople", "TONOS", "KORCCI", "BPG", "dpd",
+            "Lydia deal", "TOPOKO", "Bofoho", "TOPULORS", "KK",
+            "EZ-COZY", "SUANDSU", "SERIX", "EVERTIX", "7star",
+        ]
+        # 赛狐店铺站点后缀映射，用于把店铺主体名拼成页面完整店铺名
+        self.siteShopSuffixMap = {
+            "美国": "US",
+            "加拿大": "CA",
+            "墨西哥": "MX",
+            "巴西": "BR",
+            "英国": "UK",
+            "法国": "FR",
+            "德国": "DE",
+            "意大利": "IT",
+            "西班牙": "ES",
+            "荷兰": "NL",
+            "瑞典": "SE",
+            "波兰": "PL",
+            "比利时": "BE",
+            "爱尔兰": "IE",
+            "日本": "JP",
+            "新加坡": "SG",
+            "澳大利亚": "AU",
+            "印度": "IN",
+            "阿联酋": "AE",
+            "沙特阿拉伯": "SA",
+            "土耳其": "TR",
+            "埃及": "EG",
+            "南非": "ZA",
         }
-        # 有下拉大区的站点映射
-        self.areaSiteMap = {
-            "美国": "北美区",
-            "加拿大": "北美区",
-            "墨西哥": "北美区",
-            "巴西": "北美区",
-            "英国": "欧洲区",
-            "法国": "欧洲区",
-            "德国": "欧洲区",
-            "意大利": "欧洲区",
-            "西班牙": "欧洲区",
-            "荷兰": "欧洲区",
-            "瑞典": "欧洲区",
-            "波兰": "欧洲区",
-            "比利时": "欧洲区",
-            "爱尔兰": "欧洲区",
+        # 易得客与 Amazon 后台站点映射，键用于 GUI 展示，值用于 Amazon 站点切换
+        self.autoSiteMap = {
+            "美国": "United States",
+            "加拿大": "Canada",
+            "墨西哥": "Mexico",
+            "巴西": "Brazil",
+            "英国": "United Kingdom",
+            "法国": "France",
+            "德国": "Germany",
+            "意大利": "Italy",
+            "西班牙": "Spain",
+            "荷兰": "Netherlands",
+            "瑞典": "Sweden",
+            "波兰": "Poland",
+            "比利时": "Belgium",
+            "爱尔兰": "Ireland",
+            "日本": "Japan",
+            "新加坡": "Singapore",
+            "澳大利亚": "Australia",
+            "印度": "India",
+            "阿联酋": "United Arab Emirates",
+            "沙特阿拉伯": "Saudi Arabia",
+            "土耳其": "Turkey",
+            "埃及": "Egypt",
+            "南非": "South Africa",
         }
-        # POP 文档导出
-        self.popExport = PopExport(self.baseDir)
-        self.popExport.signatureName = str(config.get("signatureName") or "Xiaoyu Wang").strip() or "Xiaoyu Wang"
-        self.popExport.signatureImagePath = str(config.get("signatureImagePath") or "").strip()
-        exportDir = config.get("exportDir")
-        if exportDir:
-            self.popExport.exportDir = Path(str(exportDir)).resolve()
-        # 本次运行生成的 POP 文件路径
-        self.generatedFiles = []
+        # 易得客流程 GUI 站点下拉项
+        self.autoSiteNames = list(self.autoSiteMap.keys())
 
-    def getShipmentIds(self, totalPages):
-        """监听列表接口并翻页，提取申收差异大于 0 的 amazonShipmentId"""
-        page = self.page
-        allShipmentIds = []
-        seenShipmentIds = set()
+    def runSaihu(self, config):
+        """执行赛狐流程"""
+        # 赛狐业务逻辑统一由 Saihu 类负责
+        Saihu(config).run()
 
-        for pageNum in range(1, totalPages + 1):
-            # 第 2 页起先点页码触发请求
-            if pageNum > 1:
-                page.ele(f'x://ul[contains(@class,"el-pager")]//li[text()="{pageNum}"]', timeout=8).click()
-                time.sleep(1)
-
-            # 等待当前页接口响应
-            packet = page.listen.wait(timeout=20, fit_count=False)
-            if not packet:
-                if pageNum == 1:
-                    print("未监听到 FBA 货件列表接口")
-                else:
-                    print(f"第 {pageNum} 页未监听到接口，停止翻页")
-                break
-
-            # 取出响应体
-            body = packet.response.body
-            # 响应体为字符串时解析为 JSON
-            if isinstance(body, str):
-                body = json.loads(body)
-
-            # 取 data 节点
-            data = body.get("data", {})
-            # 兼容 records / list / rows 三种列表字段
-            rows = (
-                data.get("records")
-                or data.get("list")
-                or data.get("rows")
-                or []
-            )
-
-            # 只提取申收差异大于 0 的父级货件 ID，同一货件只保留一次
-            pageIds = []
-            currentShipmentId = ""
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-
-                # 顶层行有货件编号时，记录为当前多 SKU 货件的父级编号
-                rowShipmentId = str(row.get(self.shipmentIdKey) or "").strip()
-                if rowShipmentId:
-                    currentShipmentId = rowShipmentId
-
-                # 子行可能没有货件编号，沿用最近的父级货件编号
-                shipmentId = rowShipmentId or currentShipmentId
-                checkRows = [row]
-                childKeys = ["children", "childList", "items", "records", "list", "rows"]
-                for childKey in childKeys:
-                    childRows = row.get(childKey)
-                    if not isinstance(childRows, list):
-                        continue
-                    for childRow in childRows:
-                        if isinstance(childRow, dict):
-                            checkRows.append(childRow)
-
-                # 父行或任一 SKU 子行存在正向申收差异，则加入父级货件编号
-                for checkRow in checkRows:
-                    checkShipmentId = str(checkRow.get(self.shipmentIdKey) or shipmentId or "").strip()
-                    if not checkShipmentId:
-                        continue
-                    # 父级行和 SKU 明细行的申收差异字段不同，两个字段都要兼容
-                    diff = checkRow.get(self.diffKey)
-                    if diff is None:
-                        diff = checkRow.get(self.itemDiffKey)
-                    if diff is None:
-                        continue
-                    diffText = str(diff).strip().replace(",", "")
-                    try:
-                        if float(diffText) <= 0:
-                            continue
-                    except (TypeError, ValueError):
-                        continue
-                    if checkShipmentId in seenShipmentIds:
-                        continue
-                    seenShipmentIds.add(checkShipmentId)
-                    pageIds.append(checkShipmentId)
-                    print(f"{checkShipmentId} quantityRecDiff: {diff}", flush=True)
-                    break
-
-            allShipmentIds.extend(pageIds)
-            print(f"第 {pageNum} 页申收差异>0 共 {len(pageIds)} 个，累计 {len(allShipmentIds)} 个", flush=True)
-
-        return allShipmentIds
-
-    def getShipmentDetails(self, shipmentIds):
-        """逐个新标签页访问详情接口，解析页面 JSON 并提取货件详情"""
-        page = self.page
-        detailResults = []
-
-        # 列表阶段监听已结束，停止监听避免干扰
-        if page.listen.listening:
-            page.listen.stop()
-
-        for shipmentId in shipmentIds:
-            # 拼接带货件 ID 的详情地址
-            detailUrl = f"{self.detailApiUrl}?amazonShipmentId={shipmentId}"
-            # 新标签页打开详情，不离开列表页
-            tab = page.new_tab(url=detailUrl)
-            time.sleep(1)
-
-            # 从页面读取 JSON 正文
-            pre = tab.ele('tag:pre', timeout=3)
-            if pre:
-                rawText = pre.text
-            else:
-                rawText = tab.html.strip()
-
-            try:
-                body = json.loads(rawText)
-            except json.JSONDecodeError:
-                print(f"{shipmentId} 详情 JSON 解析失败，跳过", flush=True)
-                tab.close()
-                continue
-
-            # 取 data 节点
-            data = body.get("data")
-            if not data:
-                print(f"{shipmentId} 详情无数据: {body.get('msg')}", flush=True)
-                tab.close()
-                continue
-
-            # 货件级字段
-            shopName = data.get("shopName")
-            fulfillmentCenterId = data.get("fulfillmentCenterId")
-            shipmentName = data.get("name")
-            rawCreateTime = data.get("createTime")
-            createTime = ""
-            if rawCreateTime:
-                text = str(rawCreateTime).strip()
-                if len(text) >= 10:
-                    createTime = text[:10]
-
-            # source：拼接对象里所有非空字段
-            source = data.get("source") or {}
-            sourceText = ""
-            if isinstance(source, dict):
-                parts = []
-                for val in source.values():
-                    if val is None:
-                        continue
-                    text = str(val).strip()
-                    if text:
-                        parts.append(text)
-                sourceText = " ".join(parts)
-            elif source:
-                sourceText = str(source).strip()
-
-            # items：提取 fnSku、quantity、msku
-            itemList = []
-            for item in data.get("items") or []:
-                if not isinstance(item, dict):
-                    continue
-                itemList.append({
-                    "fnSku": item.get("fnSku"),
-                    "quantity": item.get("quantity"),
-                    "msku": item.get("msku"),
-                })
-
-            detailInfo = {
-                "shipmentId": shipmentId,
-                "shopName": shopName,
-                "fulfillmentCenterId": fulfillmentCenterId,
-                "name": shipmentName,
-                "createTime": createTime,
-                "source": sourceText,
-                "items": itemList,
-            }
-            detailResults.append(detailInfo)
-            print(detailInfo, flush=True)
-            tab.close()
-
-        return detailResults
-
-    def waitReset(self):
-        """提示用户手动重置筛选状态并等待确认"""
-        msg = (
-            "未找到赛狐页面的“重置”按钮。\n\n"
-            "请在当前赛狐 FBA货件产品页面手动点击“重置”，"
-            "确认筛选状态已清空后，再点击本提示框的“确定”继续。"
-        )
-        ctypes.windll.user32.MessageBoxW(0, msg, "请手动重置筛选状态", 0x40)
-
-    def run(self):
-        """登录赛狐、筛选货件、拉详情并生成 POP 文档"""
-        page = self.page
-        env = "线上" if self.isOnline else "线下"
-        print(f"运行环境：{env}", flush=True)
-
-        # 赛狐登录（含验证码 OCR）
-        login = SaiHuERPLogin(
-            page=page,
-            username=self.username,
-            password=self.password,
-            img_path=self.baseDir,
-        )
-        login.login()
-        print("赛狐页面登录流程完成，当前登录态已保持。", flush=True)
-
-        # 进入 FBA 货件产品维度页面
-        page.ele('x://div/ul/li/span[text()="FBA"]', timeout=8).click()
-        time.sleep(3)
-        page.ele('x://a[text()="FBA货件"]', timeout=8).click()
-        time.sleep(3)
-        page.ele('x://span[text()="产品"]', timeout=8).click()
-        time.sleep(3)
-
-        # 优先重置上一次运行残留的筛选条件，找不到时等待人工处理
-        try:
-            page.ele('x://button[.//span[text()="重置"] or text()="重置"]', timeout=8).click()
-            time.sleep(2)
-        except Exception:
-            print("未找到重置按钮，等待用户手动重置筛选状态。", flush=True)
-            self.waitReset()
-            time.sleep(1)
-
-        # 选择当前配置中的站点
-        page.ele('x://div/input[@placeholder="全部站点"]', timeout=8).click()
-        time.sleep(3)
-        siteName = self.siteName
-        if siteName in self.directSiteNames:
-            print(f"检测到该国家【{siteName}】, 不属于北美区与欧洲区, 直接点击...", flush=True)
-            page.ele(f'x://span[contains(text(), "{siteName}")]', timeout=8).click()
-        elif siteName in self.areaSiteMap:
-            siteArea = self.areaSiteMap[siteName]
-            print(f"检测到该国家【{siteName}】, 属于【{siteArea}】, 直接点击...", flush=True)
-            page.ele(f'x://span[text()="{siteArea}"]', timeout=8).hover()
-            time.sleep(1.5)
-            page.ele(f'x://span[normalize-space()="{siteName}"]', timeout=8).click()
-            time.sleep(1.5)
-        else:
-            raise ValueError(f"未配置站点区域映射: {siteName}")
-        page.ele('x://div[contains(@class, "cascader_footer")]//span[text()="确定"]', timeout=8).click()
-        time.sleep(3)
-
-        # 筛选 CLOSED 已完成货件
-        page.ele('x://div/input[@placeholder="所有状态"]', timeout=15).click()
-        time.sleep(3)
-        page.ele('x://span[text()="CLOSED(已完成)"]', timeout=15).click()
-        time.sleep(3)
-        page.ele('x://div[@class="sf_select__footer"]//span[text()="确定"]', timeout=8).click()
-        time.sleep(1)
-
-        # 时间字段切换为更新时间
-        page.ele('x://div[@class="picker_group"]//input[@readonly="readonly"]', timeout=8).click()
-        time.sleep(3)
-        page.ele('x://div[@class="el-scrollbar"]//span[text()="更新时间"]', timeout=8).click()
-        time.sleep(3)
-
-        # 监听列表接口，选择上月时间范围
-        page.listen.start(self.listApiUrl)
-        page.ele('x://div[@class="picker_group"]//input[@class="el-range-input"]', timeout=8).click()
-        time.sleep(3)
-        page.ele('x://div/button[text()="上月"]', timeout=8).click()
-        time.sleep(3)
-
-        # 每页条数设为 200（最大）
-        page.ele('x://span[contains(@class,"el-pagination__sizes")]//input', timeout=8).click()
-        time.sleep(0.5)
-        page.ele('x://span[text()="200条/页"]', timeout=8).click()
-        time.sleep(1)
-
-        # 读取总条数并计算总页数
-        totalText = page.ele('x://span[contains(@class,"total_style")]', timeout=8).text
-        totalText = str(totalText).strip().replace(",", "")
-        totalMatch = re.search(r"\d+", totalText)
-        if not totalMatch:
-            raise ValueError(f"未能解析总条数: {totalText}")
-        total = int(totalMatch.group())
-        totalPages = (total + self.pageSize - 1) // self.pageSize
-        print(f"共 {total} 条，每页 {self.pageSize} 条，共 {totalPages} 页", flush=True)
-
-        # 翻页收集申收差异大于 0 的货件 ID
-        allShipmentIds = self.getShipmentIds(totalPages)
-        print(f"共提取到 {len(allShipmentIds)} 个申收差异大于 0 的 amazonShipmentId", flush=True)
-        self.popExport.exportDir.mkdir(parents=True, exist_ok=True)
-        shipmentJsonPath = self.popExport.exportDir / "shipment_ids.json"
-        shipmentData = {
-            "createdAt": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "siteName": self.siteName,
-            "count": len(allShipmentIds),
-            "shipmentIds": allShipmentIds,
-        }
-        shipmentJsonPath.write_text(json.dumps(shipmentData, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"货件编号兜底 JSON 已保存: {shipmentJsonPath}", flush=True)
-
-        # 逐个拉取货件详情并生成 POP
-        detailResults = self.getShipmentDetails(allShipmentIds)
-        print(f"共获取 {len(detailResults)} 条货件详情 msku")
-        for item in detailResults:
-            print(item)
-            try:
-                savePath = self.popExport.build(item)
-            except Exception as exc:
-                # 单个 POP 生成失败时记录错误并继续处理后续货件
-                item["popError"] = str(exc)
-                print(f"{item.get('shipmentId')} POP 生成失败: {exc}", flush=True)
-                continue
-            if savePath:
-                item["popPath"] = savePath
-                self.generatedFiles.append(savePath)
-
-        # 可选：邮件发送本次生成的 POP 文件
-        if self.config.get("sendEmail"):
-            print(f"准备发送邮件，共 {len(self.generatedFiles)} 个 POP 文件", flush=True)
-            deliver_outputs(self.config, self.generatedFiles)
-
-        print("FBA货件页面加载完成")
+    def runAuto(self, config):
+        """执行易得客流程"""
+        # 易得客业务逻辑统一由 Auto 类负责
+        Auto(config).run()
 
 
 if __name__ == "__main__":
-    # 本文件独立调试配置
-    defaultBaseDir = PopExport.getBaseDir()
+    # 本文件独立调试入口，默认调起赛狐流程
+    service = Main()
+    # 调试时创建浏览器页面实例
+    page = ChromiumPage()
+    # 调试配置仅用于本文件直接运行
     config = {
-        "page": ChromiumPage(),
-        "username": "",
-        "password": "",
-        "exportDir": str(defaultBaseDir / "output"),
-        "baseDir": str(defaultBaseDir),
-        "isOnline": False,
-        "siteName": "美国",
-        "sendEmail": False,
-        "email": "",
-        "signatureName": "Xiaoyu Wang",
-        "signatureImagePath": "",
+        "page": page,
+        "username": service.defaultSaihuUsername,
+        "password": service.defaultSaihuPassword,
+        "exportDir": service.defaultExportDir,
+        "baseDir": str(service.baseDir),
+        "isOnline": service.defaultIsOnline,
+        "siteName": service.defaultSiteName,
+        "shopName": f"{service.defaultShopBaseName}-{service.siteShopSuffixMap[service.defaultSiteName]}",
+        "shopBaseName": service.defaultShopBaseName,
+        "startDate": service.defaultStartDate,
+        "endDate": service.defaultEndDate,
+        "templatePath": service.defaultTemplatePath,
+        "sendEmail": service.defaultSendEmail,
+        "email": service.defaultEmail,
+        "sendWechat": service.defaultSendWechat,
+        "wechatWebhook": service.defaultWechatWebhook,
+        "wechatMobile": service.defaultWechatMobile,
     }
-
-    claim = FbaClaim(config)
-    claim.run()
+    service.runSaihu(config)
