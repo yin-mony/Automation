@@ -48,4 +48,7 @@ debug*.log
 数据汇总需求/_docx_images/
 1688商品链接数据采集/规格汇总.xlsx
 日报生成器/工作日报-*.txt
+日报生成器/run_config.json
 下载美国站Transaction报告/6.0
+trec公司+个人合作推广/run_config.json
+trec公司+个人合作推广/file/
