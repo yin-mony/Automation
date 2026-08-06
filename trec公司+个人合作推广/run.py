@@ -201,7 +201,7 @@ class RunGui:
         )
         ttk.Label(
             box,
-            text="保存后会写入 run_config.json；运行模式、SerpApi Key、固定发件邮箱、SMTP 服务器和授权码不会写入本地配置。",
+            text="保存后会写入 run_config.json；SerpApi Key 和 SMTP 授权码可放在本机 run_config.local.json，程序会自动读取但不会提交远端。",
             foreground="#666666",
             wraplength=700,
         ).grid(row=0, column=2, sticky="w", padx=(12, 0))
@@ -347,7 +347,7 @@ class RunGui:
         currentMode = self.modeVar.get() if self.modeVar else "company"
         hiddenKeys = {
             "isOnline", "sendEmail", "promotionExecuteSend", "promotionSenderEmail", "promotionRecordFileName",
-            "serpapiUrl", "serpapiKey", "sender_email", "smtp_auth_code",
+            "serpapiUrl", "serpapiKey", "sender_email", "smtp_auth_code", "promotionSmtpAuthCode",
         }
         for key, value in self.baseConfig.items():
             if key in hiddenKeys:
@@ -378,7 +378,7 @@ class RunGui:
 
         hiddenKeys = {
             "isOnline", "sendEmail", "promotionExecuteSend", "promotionSenderEmail", "promotionRecordFileName", "runMode",
-            "serpapiUrl", "serpapiKey", "sender_email", "smtp_auth_code",
+            "serpapiUrl", "serpapiKey", "sender_email", "smtp_auth_code", "promotionSmtpAuthCode",
         }
         for key, value in config.items():
             if key in hiddenKeys:
@@ -506,7 +506,7 @@ class RunGui:
         # 不保存运行模式、固定密钥和固定发信凭据。
         for key in [
             "runMode", "serpapiUrl", "serpapiKey", "sender_email", "smtp_auth_code",
-            "promotionSenderEmail", "promotionRecordFileName",
+            "promotionSenderEmail", "promotionSmtpAuthCode", "promotionRecordFileName",
         ]:
             config.pop(key, None)
 

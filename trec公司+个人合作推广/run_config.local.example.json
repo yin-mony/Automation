@@ -1,0 +1,5 @@
+{
+  "serpapiKey": "这里填写本机 SerpApi Key，不要提交真实值",
+  "smtp_auth_code": "这里填写结果附件通知邮件 SMTP 授权码，不要提交真实值",
+  "promotionSmtpAuthCode": "这里填写推广邮件 SMTP 授权码，不要提交真实值"
+}

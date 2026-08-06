@@ -29,8 +29,28 @@ except Exception:
 class Main:
     # 初始化配置、固定状态、文件名和搜索参数。
     def __init__(self, config=None):
+        # baseDir：当前子项目目录，保证从任意工作目录启动都能找到本机配置、file 和 output。
+        self.baseDir = Path(__file__).resolve().parent
+        # localConfigPath：本机明文配置文件路径，只在本机使用，不提交到远端仓库。
+        localConfigPath = self.baseDir / "run_config.local.json"
+        # localConfig：本机配置默认空字典，文件不存在时不影响程序启动。
+        localConfig = {}
+        # 如果本机存在 run_config.local.json，就先读取里面的 SerpApi Key 和 SMTP 授权码。
+        if localConfigPath.exists():
+            # read_text：读取本机 JSON 配置内容。
+            localText = localConfigPath.read_text(encoding="utf-8")
+            # json.loads：把本机 JSON 配置转换为字典。
+            localData = json.loads(localText)
+            # isinstance：只接受 JSON 对象，避免误把数组或字符串当作配置。
+            if isinstance(localData, dict):
+                # localConfig：保存本机配置，后续会和 GUI 配置合并。
+                localConfig = localData
         # config：外部传入配置；GUI 会传入用户填写项，命令行调试可传空。
         config = dict(config or {})
+        # localConfig.update：GUI/命令行传入配置优先级更高，本机配置主要补充密钥字段。
+        localConfig.update(config)
+        # config：合并后的运行配置。
+        config = localConfig
         # self.config：项目唯一默认配置来源，不再单独维护默认配置函数。
         self.config = {
             # isOnline：运行环境标记；False 表示本机，True 表示线上。
@@ -65,9 +85,9 @@ class Main:
             "promotionExecuteSend": bool(config.get("promotionExecuteSend", False)),
             # promotionSenderEmail：推广邮件固定发件邮箱，GUI 只展示不可修改。
             "promotionSenderEmail": "info@time2renew.com",
+            # promotionSmtpAuthCode：推广邮件 SMTP 授权码不进 GUI；优先读本机配置，其次读环境变量。
+            "promotionSmtpAuthCode": str(config.get("promotionSmtpAuthCode") or os.getenv("TREC_PROMO_SMTP_AUTH_CODE", "")),
         }
-        # baseDir：当前子项目目录，保证从任意工作目录启动都能找到 file 和 output。
-        self.baseDir = Path(__file__).resolve().parent
         # dataDir：内置数据文件目录，固定为当前子项目下的 file，不允许从 GUI 或配置文件修改。
         self.dataDir = self.baseDir / "file"
         # outputDir：最终结果表、断点和缓存目录，不再和 file 内置数据目录混用。
@@ -764,8 +784,8 @@ class Main:
         # smtpUser：推广邮件固定 SMTP 登录账号，和固定发件邮箱保持一致。
         smtpUser = senderEmail
 
-        # smtpPassword：推广邮件 SMTP 授权码不进 GUI；正式运行从环境变量 TREC_PROMO_SMTP_AUTH_CODE 读取。
-        smtpPassword = os.getenv("TREC_PROMO_SMTP_AUTH_CODE", "")
+        # smtpPassword：推广邮件 SMTP 授权码不进 GUI；优先读本机配置，其次读环境变量。
+        smtpPassword = txt(self.config.get("promotionSmtpAuthCode") or os.getenv("TREC_PROMO_SMTP_AUTH_CODE", ""))
 
         # emailSubject：推广邮件主题，写在流程函数中，便于和推广流程一起维护。
         emailSubject = "Partner with us on agent CE renewals"

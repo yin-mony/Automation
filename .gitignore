@@ -51,4 +51,5 @@ debug*.log
 日报生成器/run_config.json
 下载美国站Transaction报告/6.0
 trec公司+个人合作推广/run_config.json
+trec公司+个人合作推广/run_config.local.json
 trec公司+个人合作推广/file/
