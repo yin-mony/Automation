@@ -25,7 +25,7 @@
 | [`产品主要流量词监控/`](./产品主要流量词监控/) | 易得客 + 西柚找词关键词反查，解析自然排名并通过企业微信机器人告警 | [README](./产品主要流量词监控/README.md) |
 | [`新版-赛狐erp支持变体开发/`](./新版-赛狐erp支持变体开发/) | 赛狐 ERP 纯新品 / 横向变体双模式自动化，Tkinter GUI 与 exe 打包 | [README](./新版-赛狐erp支持变体开发/README.md) |
 | [`自动发送offer/`](./自动发送offer/) | 企业微信入职审批监听，审批通过后自动发送 Offer；含回调部署示例 | [README](./自动发送offer/README.md) |
-| [`trec公司合作推广/`](./trec公司合作推广/) | TREC 公司合作推广相关自动化流程，包含推广数据处理和发送流程 | 暂无 |
+| [`trec推广发送/`](./trec推广发送/) | 读取 TREC 推广匹配结果并按邮箱发送推广邮件，记录发送结果 | [使用说明](./trec推广发送/使用说明.md) |
 | [`下载全站点汇总报告/`](./下载全站点汇总报告/) | 易得客登录 TikTok Shop，按店铺下载全站点汇总报告；含 Tkinter GUI | [README](./下载全站点汇总报告/README.md) |
 | [`下载美国站Transaction报告/`](./下载美国站Transaction报告/) | 易得客登录 TikTok Shop 美国站并请求当月 Transaction 报告 | [README](./下载美国站Transaction报告/README.md) |
 | [`下载亚马逊后台站点报告/`](./下载亚马逊后台站点报告/) | 易得客进入指定后台站点后请求汇总报告或 Transaction 报告；含 Tkinter GUI | [README](./下载亚马逊后台站点报告/README.md) |

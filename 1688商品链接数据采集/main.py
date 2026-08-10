@@ -6,6 +6,7 @@
 """
 
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ import pandas as pd
 from DrissionPage import ChromiumPage
 from excel import ExcelDF
 from mt import Mt
+from email_util import PROJECT_NAME, deliver_outputs
 
 
 class Ali1688:
@@ -29,12 +31,18 @@ class Ali1688:
 
         Args:
             page: DrissionPage ChromiumPage，仅导出时可传 None。
-            config: 含 file_path（输入 Excel）、path（JSON/汇总输出目录）。
+            config: 含 file_path（输入 Excel）、path（JSON/汇总输出目录）、
+                isOnline、sendEmail、email 等（与下载美国站子项目一致）。
         """
         self.page = page
         self.file_path = config['file_path']
         self.path = config['path']
         self.base_dir = Path(config['path'])
+        self.is_online = bool(config.get('isOnline', False))
+        self.send_email = bool(config.get('sendEmail', False))
+        self.email = (config.get('email') or '').strip()
+        self.sender_email = (config.get('sender_email') or '').strip()
+        self.smtp_auth_code = (config.get('smtp_auth_code') or '').strip()
         # 详情页 XHR/JSONP 监听关键字（对应 detail_widget / sku_selector）
         self.LISTEN_URL_KEYWORDS = (
             'OfferDetailWidget.do',
@@ -58,6 +66,26 @@ class Ali1688:
     def output_excel_path(self):
         """规格汇总 Excel 的默认输出路径（{path}/规格汇总.xlsx）。"""
         return self.base_dir / '规格汇总.xlsx'
+
+    def collect_output_files(self):
+        """在输出目录中查找规格汇总 Excel 或文件名含项目名的文件。"""
+        folder = self.base_dir
+        if not folder.exists():
+            print(f'输出目录不存在: {folder}')
+            return []
+
+        files = []
+        if self.output_excel_path.is_file():
+            files.append(self.output_excel_path)
+        for p in folder.iterdir():
+            if p.is_file() and PROJECT_NAME in p.name and p not in files:
+                files.append(p)
+        files = [str(p) for p in files]
+        if files:
+            print(f'在 {folder} 找到 {len(files)} 个可发送文件')
+        else:
+            print(f'在 {folder} 未找到规格汇总.xlsx 或含「{PROJECT_NAME}」的文件')
+        return files
 
     def link_extract(self):
         """读取 Excel 并解析链接，返回可直接采集的条目列表。
@@ -439,11 +467,27 @@ class Ali1688:
         print(f'已导出: {output_path}')
 
     def run(self):
-        """一键执行：data() 采集 JSON，再 excel_df() 导出规格汇总。"""
+        """一键执行：data() 采集 JSON，再 excel_df() 导出；可选发送邮件。"""
+        env = '线上' if self.is_online else '线下'
+        print(f'运行环境：{env}')
         print('=== 采集 1688 商品链接数据 ===')
         self.data()
         print('=== 导出规格汇总 ===')
         self.excel_df()
+        if not self.send_email:
+            print('未启用邮件发送，流程结束')
+            return
+
+        output_files = self.collect_output_files()
+        deliver_outputs(
+            {
+                'sendEmail': True,
+                'email': self.email,
+                'sender_email': self.sender_email,
+                'smtp_auth_code': self.smtp_auth_code,
+            },
+            output_files,
+        )
 
 
 if __name__ == '__main__':
@@ -451,6 +495,11 @@ if __name__ == '__main__':
     config = {
         'file_path': r'C:\Users\admin\Desktop\压体积包装_分类汇总分享.xlsx',
         'path': r'C:\Users\admin\Desktop\1688商品链接数据采集',
+        'isOnline': False,
+        'sendEmail': False,
+        'email': '',
+        'sender_email': os.getenv('SMTP_SENDER', '1974419863@qq.com'),
+        'smtp_auth_code': os.getenv('SMTP_AUTH_CODE', ''),
     }
     page = ChromiumPage()
     ali1688 = Ali1688(page=page, config=config)

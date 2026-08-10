@@ -1,4 +1,5 @@
 from datetime import datetime
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -297,7 +298,7 @@ if __name__ == "__main__":
     # 本文件独立调试配置
     config = {
         "excelPath": r"C:\RPA流程\亚马逊评论分析\flie\亚马逊评论.xlsx",
-        "apiKey": "",
+        "apiKey": os.getenv("OPENAI_API_KEY", ""),
     }
 
     # API Key 为空时只提示调试方式，避免误发请求

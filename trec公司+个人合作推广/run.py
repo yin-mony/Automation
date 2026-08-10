@@ -18,7 +18,7 @@ class RunGui:
 
     def __init__(self):
         """初始化窗口、默认配置、控件变量和日志轮询。"""
-        self.baseDir = Path(__file__).resolve().parent
+        self.baseDir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
         self.configPath = self.baseDir / "run_config.json"
         self.baseMain = Main()
         self.baseConfig = self.baseMain.config
@@ -53,8 +53,8 @@ class RunGui:
         # 主窗口基础配置。
         self.window = tk.Tk()
         self.window.title("TREC 公司+个人合作推广")
-        self.window.geometry("1120x760")
-        self.window.minsize(980, 660)
+        self.window.geometry("1180x780")
+        self.window.minsize(1040, 680)
         self.window.protocol("WM_DELETE_WINDOW", self.closeWindow)
 
         # 运行模式是窗口状态，不写入 main.py 默认配置，也不保存到 run_config.json。
@@ -72,118 +72,130 @@ class RunGui:
     def buildWindow(self):
         """创建窗口布局。"""
         self.window.columnconfigure(0, weight=1)
-        self.window.rowconfigure(1, weight=1)
+        self.window.rowconfigure(0, weight=1)
 
-        self.buildTopBar()
+        # pageFrame：窗口唯一主页面容器，让标题、模式、配置和日志形成一个整体页面。
+        pageFrame = ttk.Frame(self.window, padding=14)
+        pageFrame.grid(row=0, column=0, sticky="nsew")
+        pageFrame.columnconfigure(0, weight=1)
+        pageFrame.rowconfigure(2, weight=1)
+        pageFrame.rowconfigure(3, weight=0)
 
-        body = ttk.Frame(self.window, padding=(10, 0, 10, 10))
-        body.grid(row=1, column=0, sticky="nsew")
-        body.columnconfigure(1, weight=1)
-        body.rowconfigure(0, weight=1)
+        self.buildTopBar(pageFrame)
+        self.buildModeBar(pageFrame)
 
-        self.buildModeBar(body)
-
-        rightFrame = ttk.Frame(body)
-        rightFrame.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
-        rightFrame.columnconfigure(0, weight=1)
-        rightFrame.rowconfigure(0, weight=4)
-        rightFrame.rowconfigure(1, weight=1)
-
-        self.contentFrame = ttk.Frame(rightFrame, padding=12)
-        self.contentFrame.grid(row=0, column=0, sticky="nsew")
+        # contentFrame：模式切换后的主要配置区，和日志区共享同一个页面宽度。
+        self.contentFrame = ttk.Frame(pageFrame, padding=(0, 10, 0, 0))
+        self.contentFrame.grid(row=2, column=0, sticky="nsew")
         self.contentFrame.columnconfigure(0, weight=1)
+        self.contentFrame.columnconfigure(1, weight=1)
+        self.contentFrame.rowconfigure(1, weight=1)
 
-        logFrame = ttk.LabelFrame(rightFrame, text="运行日志", padding=8)
-        logFrame.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        # logFrame：日志固定在页面底部，不再和配置区左右分裂。
+        logFrame = ttk.LabelFrame(pageFrame, text="运行日志", padding=8)
+        logFrame.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
         logFrame.columnconfigure(0, weight=1)
         logFrame.rowconfigure(0, weight=1)
-        self.logText = ScrolledText(logFrame, wrap=tk.WORD, height=10)
+        self.logText = ScrolledText(logFrame, wrap=tk.WORD, height=6)
         self.logText.grid(row=0, column=0, sticky="nsew")
 
-    def buildTopBar(self):
+    def buildTopBar(self, parent):
         """创建顶部运行按钮和状态提示。"""
-        topFrame = ttk.Frame(self.window, padding=(10, 10, 10, 8))
+        topFrame = ttk.Frame(parent)
         topFrame.grid(row=0, column=0, sticky="ew")
-        topFrame.columnconfigure(1, weight=1)
+        topFrame.columnconfigure(0, weight=1)
 
-        self.startButton = ttk.Button(topFrame, text="开始运行", command=self.startTask)
-        self.startButton.grid(row=0, column=0, padx=(0, 8))
+        ttk.Label(topFrame, text="TREC 公司+个人合作推广", font=("Microsoft YaHei UI", 18, "bold")).grid(
+            row=0, column=0, sticky="w"
+        )
 
         self.statusVar = tk.StringVar(value="就绪")
-        ttk.Label(topFrame, textvariable=self.statusVar, foreground="#0f6b7a").grid(row=0, column=1, sticky="e")
+        ttk.Label(topFrame, textvariable=self.statusVar, foreground="#0f6b7a").grid(row=0, column=1, sticky="e", padx=(12, 8))
+
+        self.startButton = ttk.Button(topFrame, text="开始运行", command=self.startTask)
+        self.startButton.grid(row=0, column=2, sticky="e")
 
     def buildModeBar(self, parent):
-        """创建左侧模式按钮。"""
-        modeFrame = ttk.LabelFrame(parent, text="运行模式", padding=10)
-        modeFrame.grid(row=0, column=0, sticky="ns")
+        """创建顶部横向模式按钮。"""
+        modeFrame = ttk.Frame(parent)
+        modeFrame.grid(row=1, column=0, sticky="ew", pady=(12, 4))
+        modeFrame.columnconfigure(4, weight=1)
 
         modes = [
-            ("config", "配置"),
             ("company", "公司模式"),
             ("person", "个人模式"),
         ]
-        for rowNo, (modeValue, modeText) in enumerate(modes):
+        ttk.Label(modeFrame, text="运行模式").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        for colNo, (modeValue, modeText) in enumerate(modes, start=1):
             ttk.Radiobutton(
                 modeFrame,
                 text=modeText,
                 value=modeValue,
                 variable=self.modeVar,
                 command=self.switchMode,
-                width=18,
-            ).grid(row=rowNo, column=0, sticky="ew", pady=4)
+            ).grid(row=0, column=colNo, sticky="w", padx=(0, 14))
 
         noteText = (
-            "搜索接口：SerpApi。\n\n"
-            "搜索页：固定 Google 第一页。\n\n"
-            "批量：每次固定 10 个对象。\n\n"
-            "断点和缓存：后台自动保存。"
+            "SerpApi 搜索 · 固定 Google 第一页 · 每次 10 个对象 · 断点和缓存后台自动保存"
         )
-        ttk.Label(modeFrame, text=noteText, foreground="#666666", wraplength=170, justify="left").grid(
-            row=len(modes), column=0, sticky="w", pady=(16, 0)
+        ttk.Label(modeFrame, text=noteText, foreground="#666666").grid(
+            row=0, column=4, sticky="e"
         )
 
     def switchMode(self):
-        """切换模式并刷新右侧配置。"""
+        """切换模式并刷新共用配置页。"""
         if not self.contentFrame:
             return
         for child in self.contentFrame.winfo_children():
             child.destroy()
 
-        mode = self.modeVar.get()
-        if mode == "config":
-            self.buildConfigPanel()
-        elif mode == "person":
-            self.buildPersonPanel()
-        else:
-            self.buildCompanyPanel()
+        self.buildConfigPanel()
         self.refreshPlanInfo()
 
     def buildConfigPanel(self):
-        """创建公共配置页。"""
-        self.addTitle("配置", "file 是固定内置数据目录；输出目录只用于结果表、断点和缓存。")
-        self.addConfigActionBox(row=1)
-        self.addRuntimeBox(row=2)
-        self.addPathBox(row=3)
-        self.addRuleBox(row=4)
-        self.addPlanBox(row=5)
+        """创建公司/个人模式共用配置页。"""
+        if self.modeVar.get() == "person":
+            title = "个人模式"
+            description = "读取清洗表中无挂靠公司、Active、指定月份内到期的个人，再调用 SerpApi 并用浏览器打开二级页面提取。"
+        else:
+            title = "公司模式"
+            description = "读取清洗表中有挂靠公司的数据，按公司名去重后调用 SerpApi，并用浏览器打开返回 link 的二级页面。"
 
-    def buildCompanyPanel(self):
-        """创建公司模式配置页。"""
-        self.addTitle("公司模式", "读取清洗表中有挂靠公司的数据，按公司名去重后调用 SerpApi，并用浏览器打开返回 link 的二级页面。")
-        self.addRuleBox(row=1)
-        self.addPlanBox(row=2)
+        self.addTitle(title, description)
+        bodyFrame = ttk.Frame(self.contentFrame)
+        bodyFrame.grid(row=1, column=0, columnspan=2, sticky="nsew")
+        bodyFrame.columnconfigure(0, weight=3)
+        bodyFrame.columnconfigure(1, weight=2)
+        bodyFrame.rowconfigure(0, weight=1)
 
-    def buildPersonPanel(self):
-        """创建个人模式配置页。"""
-        self.addTitle("个人模式", "读取清洗表中无挂靠公司、Active、指定月份内到期的个人，再调用 SerpApi 并用浏览器打开二级页面提取。")
-        self.addPersonBox(row=1)
-        self.addRuleBox(row=2)
-        self.addPlanBox(row=3)
+        leftFrame = ttk.Frame(bodyFrame)
+        leftFrame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        leftFrame.columnconfigure(0, weight=1)
+        leftFrame.columnconfigure(1, weight=1)
+
+        rightFrame = ttk.Frame(bodyFrame)
+        rightFrame.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        rightFrame.columnconfigure(0, weight=1)
+        rightFrame.columnconfigure(1, weight=1)
+        rightFrame.rowconfigure(1, weight=1)
+
+        oldFrame = self.contentFrame
+        self.contentFrame = leftFrame
+        self.addConfigActionBox(row=0)
+        self.addRuntimeBox(row=1)
+        self.addPathBox(row=2)
+        nextRow = 3
+        if self.modeVar.get() == "person":
+            self.addPersonBox(row=nextRow)
+        self.contentFrame = rightFrame
+        self.addRuleBox(row=0, column=0)
+        self.addPlanBox(row=1, column=0)
+        self.contentFrame = oldFrame
 
     def addTitle(self, title, description):
         """添加页面标题。"""
         titleFrame = ttk.Frame(self.contentFrame)
-        titleFrame.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        titleFrame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         titleFrame.columnconfigure(0, weight=1)
         ttk.Label(titleFrame, text=title, font=("Microsoft YaHei UI", 16, "bold")).grid(row=0, column=0, sticky="w")
         ttk.Label(titleFrame, text=description, foreground="#666666", wraplength=820).grid(
@@ -193,7 +205,7 @@ class RunGui:
     def addConfigActionBox(self, row):
         """添加配置保存和恢复按钮。"""
         box = ttk.LabelFrame(self.contentFrame, text="配置操作", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
         box.columnconfigure(2, weight=1)
         ttk.Button(box, text="保存配置", command=self.saveConfig).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(box, text="恢复默认", command=lambda: self.loadDefaultValues(keepMode=True)).grid(
@@ -209,7 +221,7 @@ class RunGui:
     def addRuntimeBox(self, row):
         """添加运行环境和邮件配置。"""
         box = ttk.LabelFrame(self.contentFrame, text="运行环境和邮件", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
         box.columnconfigure(1, weight=1)
         box.columnconfigure(4, weight=1)
 
@@ -256,7 +268,7 @@ class RunGui:
     def addPathBox(self, row):
         """添加数据文件和输出配置。"""
         box = ttk.LabelFrame(self.contentFrame, text="内置数据和输出目录", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
         box.columnconfigure(1, weight=1)
         box.columnconfigure(4, weight=1)
 
@@ -276,10 +288,10 @@ class RunGui:
         self.addLabeledEntry(box, "companyResultFileName", "公司结果表", row=3, column=0)
         self.addLabeledEntry(box, "personResultFileName", "个人结果表", row=3, column=3)
 
-    def addRuleBox(self, row):
+    def addRuleBox(self, row, column):
         """添加固定搜索规则说明。"""
         box = ttk.LabelFrame(self.contentFrame, text="固定搜索规则", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=column, columnspan=2, sticky="ew", pady=(0, 6))
         box.columnconfigure(0, weight=1)
         text = (
             "1. SerpApi 固定请求 Google 第一页，不设置返回条数，按当前页实际返回的 organic_results 全部处理。\n"
@@ -287,12 +299,12 @@ class RunGui:
             "3. 程序会读取 organic_results 里的 link 字段，并用 DP 浏览器打开普通网页二级页面提取邮箱和电话。\n"
             "4. 断点文件和缓存文件由公司/个人逻辑后台自动保存，不需要在配置里填写。"
         )
-        ttk.Label(box, text=text, foreground="#666666", justify="left", wraplength=840).grid(row=0, column=0, sticky="w")
+        ttk.Label(box, text=text, foreground="#666666", justify="left", wraplength=520).grid(row=0, column=0, sticky="w")
 
     def addPersonBox(self, row):
         """添加个人模式配置。"""
         box = ttk.LabelFrame(self.contentFrame, text="个人模式配置", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=6)
         box.columnconfigure(1, weight=1)
         self.addLabeledEntry(box, "expireMonths", "到期月份", row=0, column=0)
         ttk.Label(
@@ -302,13 +314,13 @@ class RunGui:
             wraplength=760,
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
 
-    def addPlanBox(self, row):
+    def addPlanBox(self, row, column):
         """添加本次运行说明。"""
         box = ttk.LabelFrame(self.contentFrame, text="本次会怎么跑", padding=10)
-        box.grid(row=row, column=0, sticky="ew", pady=6)
+        box.grid(row=row, column=column, columnspan=2, sticky="nsew", pady=6)
         box.columnconfigure(0, weight=1)
         self.planVar = tk.StringVar(value="")
-        ttk.Label(box, textvariable=self.planVar, justify="left", wraplength=840).grid(row=0, column=0, sticky="w")
+        ttk.Label(box, textvariable=self.planVar, justify="left", wraplength=520).grid(row=0, column=0, sticky="nw")
         self.refreshPlanInfo()
 
     def addEntry(self, parent, key, row, column, width=18):
@@ -458,9 +470,7 @@ class RunGui:
         else:
             lines.append("推广邮件：只生成后台发送记录，不真实发送")
 
-        if self.modeVar.get() == "config":
-            lines.append("当前页面：配置页。请切换公司模式或个人模式后开始运行。")
-        elif self.modeVar.get() == "person":
+        if self.modeVar.get() == "person":
             lines.append(f"运行模式：个人模式，到期月份 {config['expireMonths']}。")
             lines.append("搜索对象：Active、无挂靠公司、未来指定月份内到期的个人。")
         else:
@@ -519,9 +529,6 @@ class RunGui:
         """启动后台线程执行主流程。"""
         if self.isRunning:
             messagebox.showwarning("运行中", "当前任务仍在运行，请等待完成。")
-            return
-        if self.modeVar.get() == "config":
-            messagebox.showwarning("请选择运行模式", "当前是配置页，请先切换公司模式或个人模式。")
             return
 
         config = self.buildConfig(withCallback=True)

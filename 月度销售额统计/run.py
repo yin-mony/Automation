@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
+import os
 
 from main import Automation
 
@@ -19,13 +20,15 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("月度销售额统计 - 数据下载")
-        self.root.geometry("620x520")
+        self.root.geometry("620x600")
         self.root.resizable(False, False)
 
-        self.username = tk.StringVar(value="18512836434")
-        self.password = tk.StringVar(value="Gyh1185202898.")
-        self.ips = tk.StringVar(value="35.85.87.195")
-        self.ports = tk.StringVar(value="8945")
+        self.username = tk.StringVar(value=os.getenv("YIDEKE_USERNAME", ""))
+        self.password = tk.StringVar(value=os.getenv("YIDEKE_PASSWORD", ""))
+        self.tiktok_email = tk.StringVar(value=os.getenv("MONTHLY_TIKTOK_EMAIL", ""))
+        self.tiktok_password = tk.StringVar(value=os.getenv("MONTHLY_TIKTOK_PASSWORD", ""))
+        self.ips = tk.StringVar(value=os.getenv("MONTHLY_YIDEKE_IPS", ""))
+        self.ports = tk.StringVar(value=os.getenv("MONTHLY_YIDEKE_PORTS", "8945"))
         self.file_path = tk.StringVar(value=r"C:\RPA流程\月度销售额统计\flie")
         self.running = False
 
@@ -44,25 +47,27 @@ class App:
 
         self._add_row(main_frame, 1, "易得客账号:", self.username)
         self._add_row(main_frame, 2, "易得客密码:", self.password, show="*")
+        self._add_row(main_frame, 3, "TikTok 邮箱:", self.tiktok_email)
+        self._add_row(main_frame, 4, "TikTok 密码:", self.tiktok_password, show="*")
 
-        ttk.Label(main_frame, text="店铺 IP:").grid(row=3, column=0, sticky="w", pady=8)
-        ttk.Entry(main_frame, textvariable=self.ips, width=55).grid(row=3, column=1, padx=10)
-        ttk.Label(main_frame, text="多个用逗号分隔", foreground="gray").grid(row=3, column=2)
+        ttk.Label(main_frame, text="店铺 IP:").grid(row=5, column=0, sticky="w", pady=8)
+        ttk.Entry(main_frame, textvariable=self.ips, width=55).grid(row=5, column=1, padx=10)
+        ttk.Label(main_frame, text="多个用逗号分隔", foreground="gray").grid(row=5, column=2)
 
-        ttk.Label(main_frame, text="调试端口:").grid(row=4, column=0, sticky="w", pady=8)
-        ttk.Entry(main_frame, textvariable=self.ports, width=55).grid(row=4, column=1, padx=10)
-        ttk.Label(main_frame, text="与 IP 一一对应", foreground="gray").grid(row=4, column=2)
+        ttk.Label(main_frame, text="调试端口:").grid(row=6, column=0, sticky="w", pady=8)
+        ttk.Entry(main_frame, textvariable=self.ports, width=55).grid(row=6, column=1, padx=10)
+        ttk.Label(main_frame, text="与 IP 一一对应", foreground="gray").grid(row=6, column=2)
 
-        ttk.Label(main_frame, text="达人账号:").grid(row=5, column=0, sticky="nw", pady=8)
+        ttk.Label(main_frame, text="达人账号:").grid(row=7, column=0, sticky="nw", pady=8)
         self.experts_text = scrolledtext.ScrolledText(main_frame, width=42, height=6)
-        self.experts_text.grid(row=5, column=1, padx=10, pady=8, sticky="w")
+        self.experts_text.grid(row=7, column=1, padx=10, pady=8, sticky="w")
         self.experts_text.insert("1.0", DEFAULT_EXPERTS)
 
-        ttk.Label(main_frame, text="下载目录:").grid(row=6, column=0, sticky="w", pady=8)
-        ttk.Entry(main_frame, textvariable=self.file_path, width=55).grid(row=6, column=1, padx=10)
-        ttk.Button(main_frame, text="浏览", width=10, command=self.select_folder).grid(row=6, column=2)
+        ttk.Label(main_frame, text="下载目录:").grid(row=8, column=0, sticky="w", pady=8)
+        ttk.Entry(main_frame, textvariable=self.file_path, width=55).grid(row=8, column=1, padx=10)
+        ttk.Button(main_frame, text="浏览", width=10, command=self.select_folder).grid(row=8, column=2)
 
-        ttk.Separator(main_frame).grid(row=7, column=0, columnspan=3, pady=16, sticky="ew")
+        ttk.Separator(main_frame).grid(row=9, column=0, columnspan=3, pady=16, sticky="ew")
 
         self.start_btn = ttk.Button(
             main_frame,
@@ -70,7 +75,7 @@ class App:
             width=25,
             command=self.start,
         )
-        self.start_btn.grid(row=8, column=0, columnspan=3)
+        self.start_btn.grid(row=10, column=0, columnspan=3)
 
     def _add_row(self, parent, row, label, variable, show=None):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=8)
@@ -96,6 +101,8 @@ class App:
     def build_config(self):
         username = self.username.get().strip()
         password = self.password.get()
+        tiktok_email = self.tiktok_email.get().strip()
+        tiktok_password = self.tiktok_password.get()
         ips = self.parse_list(self.ips.get())
         ports_raw = self.parse_list(self.ports.get())
         experts = self.parse_list(self.experts_text.get("1.0", "end"))
@@ -105,6 +112,10 @@ class App:
             raise ValueError("请填写易得客账号")
         if not password:
             raise ValueError("请填写易得客密码")
+        if not tiktok_email:
+            raise ValueError("请填写 TikTok 邮箱")
+        if not tiktok_password:
+            raise ValueError("请填写 TikTok 密码")
         if not ips:
             raise ValueError("请填写至少一个店铺 IP")
         if not ports_raw:
@@ -129,6 +140,8 @@ class App:
             "port": ports,
             "experts": experts,
             "file_path": file_path,
+            "tiktok_email": tiktok_email,
+            "tiktok_password": tiktok_password,
         }
 
     def start(self):
@@ -146,7 +159,13 @@ class App:
 
         def run_task():
             try:
-                automation = Automation(config)
+                config_inner = self.build_config()
+
+                def notify_captcha(msg):
+                    self.root.after(0, lambda m=msg: messagebox.showwarning("需要人工验证", m))
+
+                config_inner["on_captcha"] = notify_captcha
+                automation = Automation(config_inner)
                 automation.Start()
                 self.root.after(0, lambda: messagebox.showinfo("完成", "数据下载完成"))
             except Exception as e:

@@ -1,6 +1,7 @@
 """易得客与 Amazon 后台货件索赔自动化。"""
 
 import json
+import os
 import re
 import socket
 import subprocess
@@ -926,18 +927,18 @@ class Auto:
 if __name__ == "__main__":
     # 本文件独立调试配置
     config = {
-        "yidekeUsername": "19167561839",
-        "yidekePassword": "yxh643208yang",
+        "yidekeUsername": os.getenv("YIDEKE_USERNAME", ""),
+        "yidekePassword": os.getenv("YIDEKE_PASSWORD", ""),
         "autoSiteName": "美国",
         "amazonSiteName": "美国",
-        "shopIp": "54.201.27.19",
-        "shopPort": 8888,
-        "amazonEmail": "happymike9@outlook.com",
-        "amazonPassword": "Happylife989.",
+        "shopIp": os.getenv("FBA_SHOP_IP", ""),
+        "shopPort": int(os.getenv("FBA_SHOP_PORT", "8888")),
+        "amazonEmail": os.getenv("FBA_AMAZON_EMAIL", ""),
+        "amazonPassword": os.getenv("FBA_AMAZON_PASSWORD", ""),
         "baseDir": str(PopExport.getBaseDir()),
-        "popDir": str(PopExport.getBaseDir() / "output"),
+        "popDir": str(PopExport.getBaseDir() / "file"),
         "sendWechat": False,
-        "wechatWebhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2",
+        "wechatWebhook": os.getenv("FBA_WECOM_WEBHOOK_URL", ""),
         "wechatMobile": "",
         "email": "",
     }

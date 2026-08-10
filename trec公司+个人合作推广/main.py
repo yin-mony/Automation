@@ -3,6 +3,7 @@ import html
 import os
 import re
 import smtplib
+import sys
 import time
 from calendar import monthrange
 from datetime import datetime
@@ -29,10 +30,12 @@ except Exception:
 class Main:
     # 初始化配置、固定状态、文件名和搜索参数。
     def __init__(self, config=None):
-        # baseDir：当前子项目目录，保证从任意工作目录启动都能找到本机配置、file 和 output。
-        self.baseDir = Path(__file__).resolve().parent
+        # appDir：程序外部运行目录；源码运行时是子项目目录，exe 运行时是 exe 所在目录。
+        self.appDir = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+        # baseDir：内置资源目录；源码运行时是子项目目录，单文件 exe 运行时是 PyInstaller 解包目录。
+        self.baseDir = Path(getattr(sys, "_MEIPASS", self.appDir)).resolve() if getattr(sys, "frozen", False) else self.appDir
         # localConfigPath：本机明文配置文件路径，只在本机使用，不提交到远端仓库。
-        localConfigPath = self.baseDir / "run_config.local.json"
+        localConfigPath = self.appDir / "run_config.local.json"
         # localConfig：本机配置默认空字典，文件不存在时不影响程序启动。
         localConfig = {}
         # 如果本机存在 run_config.local.json，就先读取里面的 SerpApi Key 和 SMTP 授权码。
@@ -70,29 +73,29 @@ class Main:
             # serpapiUrl：SerpApi Google 搜索接口地址。
             "serpapiUrl": str(config.get("serpapiUrl", "https://serpapi.com/search")),
             # serpapiKey：SerpApi Key 不进入 GUI 和 run_config.json；正式运行从环境变量 TREC_SERPAPI_KEY 读取。
-            "serpapiKey": str(config.get("serpapiKey") or os.getenv("TREC_SERPAPI_KEY", "")),
+            "serpapiKey": str(config.get("serpapiKey","71d070c8a906dec367090979e1243dd62fa9b9b69e0203d4055184feb9c99e8a")),
             # sendEmail：是否在流程结束后发送固定数据表附件。
             "sendEmail": bool(config.get("sendEmail", False)),
             # email：收件邮箱；开启邮件发送时必填。
             "email": str(config.get("email", "")),
             # sender_email：固定发件邮箱，不交给用户在 GUI 中修改。
-            "sender_email": str(config.get("sender_email", "1974419863@qq.com")),
+            "sender_email": str(config.get("sender_email") or os.getenv("TREC_RESULT_SENDER_EMAIL") or "1974419863@qq.com"),
             # smtp_auth_code：结果附件 SMTP 授权码不进 GUI；正式运行从环境变量 TREC_RESULT_SMTP_AUTH_CODE 读取。
-            "smtp_auth_code": str(config.get("smtp_auth_code") or os.getenv("TREC_RESULT_SMTP_AUTH_CODE", "")),
+            "smtp_auth_code": str(config.get("smtp_auth_code") or os.getenv("TREC_RESULT_SMTP_AUTH_CODE") or os.getenv("SMTP_AUTH_CODE") or ""),
             # emailSubject：邮件标题。
             "emailSubject": str(config.get("emailSubject", "自动化_TREC公司+个人合作推广数据")),
             # promotionExecuteSend：推广邮件单一开关；False 只生成后台记录，True 真实发送。
             "promotionExecuteSend": bool(config.get("promotionExecuteSend", False)),
             # promotionSenderEmail：推广邮件固定发件邮箱，GUI 只展示不可修改。
-            "promotionSenderEmail": "info@time2renew.com",
+            "promotionSenderEmail": str(config.get("promotionSenderEmail") or os.getenv("TREC_PROMOTION_SENDER_EMAIL") or "info@time2renew.com"),
             # promotionSmtpAuthCode：推广邮件 SMTP 授权码不进 GUI；优先读本机配置，其次读环境变量。
-            "promotionSmtpAuthCode": str(config.get("promotionSmtpAuthCode") or os.getenv("TREC_PROMO_SMTP_AUTH_CODE", "")),
+            "promotionSmtpAuthCode": str(config.get("promotionSmtpAuthCode") or os.getenv("TREC_PROMOTION_SMTP_AUTH_CODE") or os.getenv("SMTP_AUTH_CODE") or ""),
         }
         # dataDir：内置数据文件目录，固定为当前子项目下的 file，不允许从 GUI 或配置文件修改。
         self.dataDir = self.baseDir / "file"
-        # outputDir：最终结果表、断点和缓存目录，不再和 file 内置数据目录混用。
+        # outputDir：最终结果表、断点和缓存目录，源码运行和 exe 运行都写到外部运行目录。
         outputDir = Path(self.config["outputDir"])
-        self.outputDir = outputDir if outputDir.is_absolute() else self.baseDir / outputDir
+        self.outputDir = outputDir if outputDir.is_absolute() else self.appDir / outputDir
         
         # 输出目录禁止使用 file，避免覆盖或污染内置底表目录。
         if self.outputDir.resolve() == self.dataDir.resolve() or self.outputDir.name.lower() == self.dataDir.name.lower():

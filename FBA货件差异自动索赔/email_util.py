@@ -14,7 +14,7 @@ from pathlib import Path
 PROJECT_NAME = "FBA货件差异自动索赔"
 DEFAULT_SUBJECT = f"自动化_{PROJECT_NAME}"
 DEFAULT_SENDER_EMAIL = "1974419863@qq.com"
-DEFAULT_SMTP_AUTH_CODE = "ucvopobstjhobbef"
+DEFAULT_SMTP_AUTH_CODE = os.getenv("SMTP_AUTH_CODE", "")
 DEFAULT_SMTP_SERVER = "smtp.qq.com"
 DEFAULT_SMTP_PORT = 465
 

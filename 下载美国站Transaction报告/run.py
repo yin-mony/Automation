@@ -204,8 +204,12 @@ class RunGui:
         }
         self.amazonSiteNames = list(self.amazonSiteMap.keys())
         # Transaction 流程配置
-        self.usernameVar = tk.StringVar(value=os.getenv("YIDEKE_USERNAME", ""))
-        self.passwordVar = tk.StringVar(value=os.getenv("YIDEKE_PASSWORD", ""))
+        self.usernameVar = tk.StringVar(
+            value=os.getenv("YIDEKE_USERNAME", "13281439638")
+        )
+        self.passwordVar = tk.StringVar(
+            value=os.getenv("YIDEKE_PASSWORD", "13281439638@MM")
+        )
         self.shopIpVar = tk.StringVar(value="54.70.92.80")
         self.shopPortVar = tk.StringVar(value="9527")
         self.autoSiteNameVar = tk.StringVar(value="美国")

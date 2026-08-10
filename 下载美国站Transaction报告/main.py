@@ -28,14 +28,25 @@ class TestPage:
         """设置默认初始值，并使用外部 config 覆盖对应配置。"""
         config = config or {}
 
-        # 易得客登录账号，用于进入易得客工作台；未传配置时读取环境变量。
-        self.username = (config.get("username") or os.getenv("YIDEKE_USERNAME") or "").strip()
+        # 易得客登录账号，用于进入易得客工作台。
+        self.username = (
+            config.get("username")
+            or os.getenv("YIDEKE_USERNAME")
+            or ""
+        ).strip()
 
-        # 易得客登录密码，与上方账号配套使用；未传配置时读取环境变量。
-        self.password = config.get("password") or os.getenv("YIDEKE_PASSWORD") or ""
+        # 易得客登录密码，与上方账号配套使用。
+        self.password = (
+            config.get("password")
+            or os.getenv("YIDEKE_PASSWORD")
+            or ""
+        )
 
         # 需要运行的易得客店铺 IP 列表；多个店铺时按顺序继续添加。
-        ips = config.get("ip", ["54.70.92.80"])
+        ips = config.get("ip")
+        if ips is None:
+            ipText = os.getenv("YIDEKE_SHOP_IPS") or os.getenv("YIDEKE_SHOP_IP") or ""
+            ips = [item.strip() for item in ipText.split(",") if item.strip()]
         self.ip = ips if isinstance(ips, list) else [ips]
 
         # 每个店铺浏览器使用的远程调试端口，必须与 ip 列表按下标一一对应。
@@ -113,11 +124,19 @@ class TestPage:
         # 报告接收邮箱；sendEmail 为 True 时必须填写。
         self.email = (config.get("email") or "").strip()
 
-        # SMTP 发件邮箱，用于发送 Transaction 报告邮件；未传配置时读取环境变量。
-        self.senderEmail = (config.get("sender_email") or os.getenv("SMTP_SENDER") or "").strip()
+        # SMTP 发件邮箱，用于发送 Transaction 报告邮件。
+        self.senderEmail = (
+            config.get("sender_email")
+            or os.getenv("SMTP_SENDER")
+            or "1974419863@qq.com"
+        ).strip()
 
-        # SMTP 发件邮箱授权码，不是邮箱登录密码；未传配置时读取环境变量。
-        self.smtpAuthCode = (config.get("smtp_auth_code") or os.getenv("SMTP_AUTH_CODE") or "").strip()
+        # SMTP 发件邮箱授权码，不是邮箱登录密码。
+        self.smtpAuthCode = (
+            config.get("smtp_auth_code")
+            or os.getenv("SMTP_AUTH_CODE")
+            or ""
+        ).strip()
 
         # 报告文件查找目录，默认使用当前 Windows 用户的桌面目录。
         self.filePath = Path(config.get("file_path") or (Path.home() / "Desktop"))

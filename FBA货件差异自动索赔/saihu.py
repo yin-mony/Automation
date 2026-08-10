@@ -1,6 +1,7 @@
 """FBA 货件差异查询与 POP 导出核心编排。"""
 
 import json
+import os
 import re
 import ctypes
 import time
@@ -23,7 +24,7 @@ class Saihu:
         self.page = config["page"]
         self.username = config["username"]
         self.password = config["password"]
-        self.isOnline = bool(config.get("isOnline", False))
+        # self.isOnline = bool(config.get("isOnline", False))
         self.baseDir = Path(config.get("baseDir") or PopExport.getBaseDir())
         # FBA 货件列表接口地址
         self.listApiUrl = "https://www.sellfox.com/api/inbound/shipmentCommodity/page.json"
@@ -676,11 +677,11 @@ if __name__ == "__main__":
     defaultBaseDir = PopExport.getBaseDir()
     config = {
         "page": ChromiumPage(),
-        "username": "sales25",
-        "password": "Sales123...",
-        "exportDir": str(defaultBaseDir / "output"),
+        "username": os.getenv("SAIHU_USERNAME", ""),
+        "password": os.getenv("SAIHU_PASSWORD", ""),
+        "exportDir": str(defaultBaseDir / "file"),
         "baseDir": str(defaultBaseDir),
-        "isOnline": False,
+        # "isOnline": False,
         "siteName": "美国",
         "sendEmail": False,
         "email": "",

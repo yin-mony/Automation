@@ -6,6 +6,7 @@ from DrissionPage import ChromiumPage,Chromium
 
 import psutil
 from YidekeLogin import Specification
+from TikTokSellerLogin import TikTokSellerLogin, _agent_dbg
 import re
 import os
 import sys
@@ -21,6 +22,9 @@ class Automation():
         self.port = config["port"]
         self.experts = config["experts"]
         self.file_path = config["file_path"]
+        self.tiktok_email = config.get("tiktok_email", "")
+        self.tiktok_password = config.get("tiktok_password", "")
+        self.on_captcha = config.get("on_captcha")
 
     def stop_program(self):
         """强制结束程序"""
@@ -77,12 +81,40 @@ class Automation():
 
     def wait_for_seller_page(self, page, timeout=90):
         """等待页面进入 TikTok 卖家后台"""
+        resolver = TikTokSellerLogin(page)
         deadline = time.time() + timeout
+        loop = 0
         while time.time() < deadline:
+            page = resolver._pick_seller_tab(page)
             url = (page.url or '').lower()
-            if 'seller' in url or 'tiktok' in url:
-                return
+            has_analytics = bool(page.ele('x://div[text()="Analytics"]', timeout=2))
+            in_seller_backend = resolver.is_seller_backend(page)
+            if loop == 0 or loop % 5 == 0:
+                # #region agent log
+                _agent_dbg("D", "main.wait_for_seller_page", "poll", {
+                    "runId": "post-fix",
+                    "loop": loop, "url": url, "has_analytics": has_analytics,
+                    "in_seller_backend": in_seller_backend,
+                })
+                # #endregion
+            loop += 1
+            if '/account/login' in url:
+                time.sleep(2)
+                continue
+            if has_analytics or in_seller_backend:
+                # #region agent log
+                _agent_dbg("A", "main.wait_for_seller_page", "success", {
+                    "runId": "post-fix", "url": url, "has_analytics": has_analytics,
+                })
+                # #endregion
+                return page
             time.sleep(2)
+        # #region agent log
+        _agent_dbg("E", "main.wait_for_seller_page", "timeout", {
+            "runId": "post-fix",
+            "final_url": (page.url or "").lower(), "loops": loop,
+        })
+        # #endregion
         raise RuntimeError(f'店铺浏览器未进入 TikTok 后台，当前 URL: {page.url}')
 
     def visit_shop(self, ip, port=9222):
@@ -104,15 +136,22 @@ class Automation():
         """
         browser = Chromium(port)
         tab = browser.latest_tab
-        buttons = tab.eles("t:button@@text()=访问")
-        for btn in buttons:
-            btn.click()
-            time.sleep(3)
+        # buttons = tab.eles("t:button@@text()=访问")
+        # for btn in buttons:
+        #     btn.click()
+        #     time.sleep(3)
         time.sleep(2)
         for ip in ips:
-            tab.ele(f'x://div[text()="{ip}"]//following-sibling::button').click()
+            # 在易得客店铺列表中按 IP 匹配「美国」店铺并点击「访问」
+            tab.ele(
+                f'x://div[contains(@class,"platform-region")]//span[normalize-space()="美国"]'
+                f'/ancestor::div[contains(@class,"shop-item")]'
+                f'[.//div[contains(@class,"text") and normalize-space()="{ip}"]]'
+                f'//button[normalize-space()="访问"]',
+                timeout=30
+            ).click()
             time.sleep(3)
-        self.kill_edecker(browser.process_id)
+        self.kill_edecker(browser.process_id)  # 关闭易得客管理窗口，仅保留店铺浏览器
         time.sleep(1)
         tab.refresh()
         time.sleep(3)
@@ -199,7 +238,19 @@ class Automation():
             month = str((datetime.now() - relativedelta(months=1)).month)
             month_cn = month_map[month]
             # time.sleep(3)
-            self.wait_for_seller_page(page)
+            if self.tiktok_email and self.tiktok_password:
+                tiktok_login = TikTokSellerLogin(page, on_captcha=self.on_captcha)
+                tiktok_login.login(self.tiktok_email, self.tiktok_password)
+                page = tiktok_login.get_active_page()
+                # #region agent log
+                _agent_dbg("A", "main.Start", "after tiktok login", {
+                    "runId": "post-fix",
+                    "main_page_url": (page.url or "").lower(),
+                    "tiktok_page_url": (tiktok_login.page.url or "").lower(),
+                    "same_object": page is tiktok_login.page,
+                })
+                # #endregion
+            page = self.wait_for_seller_page(page)
             page.ele('x://div[text()="Analytics"]',timeout=30).click()
             time.sleep(2)
             page.ele('x://span[text()="Shop analytics"]', timeout=25)
@@ -310,13 +361,17 @@ class Automation():
             download =  page.ele('x://span[text()="Export"]').click.to_download(save_path=self.file_path, suffix='xlsx',timeout=20)
             download.wait()
 if __name__ == '__main__':
+    yideke_ips = [item.strip() for item in os.getenv("MONTHLY_YIDEKE_IPS", "").split(",") if item.strip()]
+    yideke_ports = [int(item.strip()) for item in os.getenv("MONTHLY_YIDEKE_PORTS", "").split(",") if item.strip()]
     config = {
-        "username": "18512836434",
-        "password": "Gyh1185202898.",
-        "ip": ["35.85.87.195"],  # 多家店铺依次填写，与 port 一一对应
-        "port": [8945],
+        "username": os.getenv("YIDEKE_USERNAME", ""),
+        "password": os.getenv("YIDEKE_PASSWORD", ""),
+        "ip": yideke_ips,  # 多家店铺依次填写，与 port 一一对应
+        "port": yideke_ports,
         "experts": ["lydia_homegoods","carhack_ryan","k8paz0xqw4","chicpicksbylydia","c7crfmav15","dailyfindsbylydia","detailing_dave_","furfreeliving_","haley1110","lydiashomefinds","homewithcamila","kerryshares","cleanwithlydia18","pltejkffq9","shopwithlydia_","sneakerheadmax_","spicypotato571","gppzoa2o03","cleaningwithemma91","cleaningwithsofia_","hrmb03eak0"],
-        "file_path": r"C:\RPA流程\月度销售额统计\flie"
+        "file_path": r"C:\RPA流程\月度销售额统计\flie",
+        "tiktok_email": os.getenv("MONTHLY_TIKTOK_EMAIL", ""),
+        "tiktok_password": os.getenv("MONTHLY_TIKTOK_PASSWORD", ""),
     }
     automation = Automation(config)
     automation.Start()

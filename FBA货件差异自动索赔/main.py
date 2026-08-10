@@ -1,5 +1,6 @@
 """FBA 货件差异自动索赔配置与流程调用入口。"""
 
+import os
 from datetime import date, timedelta
 
 from DrissionPage import ChromiumPage
@@ -18,7 +19,7 @@ class Main:
         # GUI 本地缓存配置文件，删除后会按本类默认值重新生成
         self.configFile = self.baseDir / "run_config.json"
         # 默认 POP 输出目录，赛狐流程生成的 PDF 默认保存到这里
-        self.defaultExportDir = str(self.baseDir / "output")
+        self.defaultExportDir = str(self.baseDir / "file")
         # 默认 POP 模板文件，GUI 未选择模板时使用项目内置模板
         self.defaultTemplatePath = str(PopExport.getResourceDir() / "服务商模板.docx")
         # 默认运行环境，False 表示线下环境，True 表示线上环境
@@ -30,7 +31,7 @@ class Main:
         # 默认邮件发件邮箱，用于 SMTP 登录并发送通知邮件
         self.defaultSenderEmail = "1974419863@qq.com"
         # 默认 SMTP 授权码，用于发件邮箱登录 SMTP 服务
-        self.defaultSmtpAuthCode = "ucvopobstjhobbef"
+        self.defaultSmtpAuthCode = os.getenv("SMTP_AUTH_CODE", "")
         # 默认 SMTP 服务地址，QQ 邮箱使用 smtp.qq.com
         self.defaultSmtpServer = "smtp.qq.com"
         # 默认 SMTP SSL 端口，QQ 邮箱 SSL 发送端口为 465
@@ -38,33 +39,33 @@ class Main:
         # 默认企业微信发送开关，False 表示不发送企业微信通知
         self.defaultSendWechat = False
         # 默认企业微信群机器人 Webhook，用于推送 CASE 结果汇总
-        self.defaultWechatWebhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=b0049d97-c114-4b16-9434-ca6534a7e1f2"
+        self.defaultWechatWebhook = os.getenv("FBA_WECOM_WEBHOOK_URL", "")
         # 默认企业微信 @ 手机号，GUI 可按实际接收人修改
         self.defaultWechatMobile = "18280194086"
         # 默认赛狐账号，GUI 首次启动时回填
-        self.defaultSaihuUsername = "Manager-4"
+        self.defaultSaihuUsername = os.getenv("SAIHU_USERNAME", "")
         # 默认赛狐密码，GUI 首次启动时回填
-        self.defaultSaihuPassword = "Bonison123456"
+        self.defaultSaihuPassword = os.getenv("SAIHU_PASSWORD", "")
         # 默认赛狐筛选站点
         self.defaultSiteName = "美国"
         # 默认赛狐店铺主体名，运行时会按站点拼接后缀
         self.defaultShopBaseName = "Lydia deal"
         # 默认易得客账号，GUI 首次启动时回填
-        self.defaultYidekeUsername = "19167561839"
+        self.defaultYidekeUsername = os.getenv("YIDEKE_USERNAME", "")
         # 默认易得客密码，GUI 首次启动时回填
-        self.defaultYidekePassword = "yxh643208yang"
+        self.defaultYidekePassword = os.getenv("YIDEKE_PASSWORD", "")
         # 默认易得客店铺站点，用于进店访问
         self.defaultAutoSiteName = "美国"
         # 默认 Amazon 后台站点，用于 Seller Central 站点切换
         self.defaultAmazonSiteName = "美国"
         # 默认店铺 IP，GUI 首次启动时回填
-        self.defaultShopIp = "54.201.27.19"
+        self.defaultShopIp = os.getenv("FBA_SHOP_IP", "")
         # 默认店铺调试端口，用于接管易得客浏览器
         self.defaultShopPort = "8888"
         # 默认 Amazon 登录邮箱，GUI 首次启动时回填
-        self.defaultAmazonEmail = "happymike9@outlook.com"
+        self.defaultAmazonEmail = os.getenv("FBA_AMAZON_EMAIL", "")
         # 默认 Amazon 登录密码，GUI 首次启动时回填
-        self.defaultAmazonPassword = "Happylife989."
+        self.defaultAmazonPassword = os.getenv("FBA_AMAZON_PASSWORD", "")
         # 当前月份第一天，用于计算默认筛选时间
         firstDayThisMonth = date.today().replace(day=1)
         # 上月最后一天，用于默认结束时间

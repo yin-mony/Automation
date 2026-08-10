@@ -664,8 +664,8 @@ if __name__ == "__main__":
     # 本文件独立调试配置
 
     config = {
-        "username": "",
-        "password": "",
+        "username": os.getenv("YIDEKE_USERNAME", ""),
+        "password": os.getenv("YIDEKE_PASSWORD", ""),
     }
 
     # 未配置账号密码时只提示调试方式，避免误启动真实登录

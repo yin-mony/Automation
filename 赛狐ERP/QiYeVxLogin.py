@@ -12,8 +12,16 @@ from pywinauto import Desktop
 
 
 class QiYeVxLogin:
-    def __init__(self, exe_path=None, extra_search_paths=None):
+    def __init__(self, config=None, exe_path=None, extra_search_paths=None):
         """初始化企业微信登录管理器，支持自定义可执行文件和额外搜索路径。"""
+        if isinstance(config, dict):
+            self.config = config
+            exe_path = config.get("exe_path") or exe_path
+            extra_search_paths = config.get("extra_search_paths") or extra_search_paths
+        else:
+            self.config = {}
+            if config is not None and exe_path is None:
+                exe_path = config
         self.extra_search_paths = extra_search_paths or []
         # 延迟解析可执行路径，避免在“企业微信已运行”时因路径未找到而初始化失败。
         self.exe_path = exe_path
@@ -417,3 +425,14 @@ class QiYeVxLogin:
             "login_time": self.login_time,
             "last_detected_texts": self.last_detected_texts[:print_text_limit],
         }
+
+
+if __name__ == "__main__":
+    config = {
+        "exe_path": "",
+        "extra_search_paths": [],
+        "timeout": 120,
+        "interval": 2,
+    }
+    run = QiYeVxLogin(config)
+    run.run_login_test(timeout=config["timeout"], interval=config["interval"])

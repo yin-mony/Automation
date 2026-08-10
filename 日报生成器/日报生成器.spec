@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+hiddenimports = ['main']
 
 a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

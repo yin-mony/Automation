@@ -40,7 +40,7 @@ class PopExport:
         # GUI 选择的 POP 模板，未选择时沿用内置服务商模板
         self.customTemplatePath = None
         # POP 输出目录
-        self.exportDir = self.baseDir / "output"
+        self.exportDir = self.baseDir / "file"
         # 汇总表占位标签
         self.summaryLabels = [
             "Packing List Date:",

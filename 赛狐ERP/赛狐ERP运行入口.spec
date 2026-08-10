@@ -4,6 +4,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = []
 binaries = []
 hiddenimports = [
+    'main',
     'NewSet',
     'LowPrice',
     'SaihuERPLogin',

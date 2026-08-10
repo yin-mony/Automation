@@ -6,7 +6,17 @@ import subprocess
 from pywinauto.application import Application
 from DrissionPage import ChromiumPage,Chromium
 class Specification:
-    def __init__(self,username,password):
+    def __init__(self, config, password=None):
+        if isinstance(config, dict):
+            self.config = config
+            username = config.get("username")
+            password = config.get("password")
+        else:
+            self.config = {
+                "username": config,
+                "password": password,
+            }
+            username = config
 
         exe_path = self.resolve_edecker()
         self.username = username
@@ -86,3 +96,10 @@ class Specification:
         dlg.child_window(title="登录易得客", control_type="Button").click()
 
 
+if __name__ == "__main__":
+    config = {
+        "username": "请填写易得客账号",
+        "password": "请填写易得客密码",
+    }
+    run = Specification(config)
+    run.YidekeLogin()

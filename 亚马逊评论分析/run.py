@@ -167,6 +167,15 @@ class RunGui:
             self.amazonEmail = tk.StringVar(value="")
             self.amazonPassword = tk.StringVar(value="")
             self.filePath = tk.StringVar(value=self.defaultFilePath)
+            # 密码显示状态
+            self.passwordVisible = False
+            self.amazonPasswordVisible = False
+            # 密码输入控件
+            self.passwordEntry = None
+            self.amazonPasswordEntry = None
+            # 密码显示按钮
+            self.passwordToggleBtn = None
+            self.amazonPasswordToggleBtn = None
 
             # 构建界面并加载配置
             self.buildUi()
@@ -189,7 +198,10 @@ class RunGui:
             # 易得客密码输入
             row += 1
             ttk.Label(form, text="易得客密码:").grid(row=row, column=0, sticky="w", pady=4)
-            ttk.Entry(form, textvariable=self.password, width=50, show="*").grid(row=row, column=1, columnspan=2, sticky="ew", padx=8, pady=4)
+            self.passwordEntry = ttk.Entry(form, textvariable=self.password, width=62, show="*")
+            self.passwordEntry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+            self.passwordToggleBtn = ttk.Button(form, text="显示", width=10, command=self.togglePassword)
+            self.passwordToggleBtn.grid(row=row, column=2, sticky="e", pady=4)
 
             # 店铺 IP 输入
             row += 1
@@ -220,7 +232,10 @@ class RunGui:
             # Amazon 后台密码输入
             row += 1
             ttk.Label(form, text="Amazon 密码:").grid(row=row, column=0, sticky="w", pady=4)
-            ttk.Entry(form, textvariable=self.amazonPassword, width=72, show="*").grid(row=row, column=1, columnspan=2, sticky="ew", padx=8, pady=4)
+            self.amazonPasswordEntry = ttk.Entry(form, textvariable=self.amazonPassword, width=62, show="*")
+            self.amazonPasswordEntry.grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+            self.amazonPasswordToggleBtn = ttk.Button(form, text="显示", width=10, command=self.toggleAmazonPassword)
+            self.amazonPasswordToggleBtn.grid(row=row, column=2, sticky="e", pady=4)
 
             # 保存目录输入
             row += 1
@@ -424,6 +439,20 @@ class RunGui:
                 "filePath": filePath,
             }
 
+        def togglePassword(self):
+            """切换易得客密码显示状态"""
+            # 翻转显示状态并同步输入框
+            self.passwordVisible = not self.passwordVisible
+            self.passwordEntry.configure(show="" if self.passwordVisible else "*")
+            self.passwordToggleBtn.configure(text="隐藏" if self.passwordVisible else "显示")
+
+        def toggleAmazonPassword(self):
+            """切换 Amazon 密码显示状态"""
+            # 翻转显示状态并同步输入框
+            self.amazonPasswordVisible = not self.amazonPasswordVisible
+            self.amazonPasswordEntry.configure(show="" if self.amazonPasswordVisible else "*")
+            self.amazonPasswordToggleBtn.configure(text="隐藏" if self.amazonPasswordVisible else "显示")
+
         def saveConfig(self):
             """保存下载页配置"""
             # 读取 ASIN 输入并转义换行
@@ -580,6 +609,12 @@ class RunGui:
             # 界面变量
             self.excelPath = tk.StringVar(value=self.defaultExcelPath)
             self.apiKey = tk.StringVar(value="")
+            # API Key 显示状态
+            self.apiKeyVisible = False
+            # API Key 输入控件
+            self.apiKeyEntry = None
+            # API Key 显示按钮
+            self.apiKeyToggleBtn = None
 
             # 构建界面并加载配置
             self.buildUi()
@@ -602,7 +637,10 @@ class RunGui:
             # API Key 输入
             row += 1
             ttk.Label(form, text="OpenAI API Key:").grid(row=row, column=0, sticky="w", pady=6)
-            ttk.Entry(form, textvariable=self.apiKey, width=72, show="*").grid(row=row, column=1, columnspan=2, sticky="ew", padx=8, pady=6)
+            self.apiKeyEntry = ttk.Entry(form, textvariable=self.apiKey, width=62, show="*")
+            self.apiKeyEntry.grid(row=row, column=1, sticky="ew", padx=8, pady=6)
+            self.apiKeyToggleBtn = ttk.Button(form, text="显示", width=10, command=self.toggleApiKey)
+            self.apiKeyToggleBtn.grid(row=row, column=2, sticky="e", pady=6)
 
             # 操作按钮
             row += 1
@@ -686,6 +724,13 @@ class RunGui:
                 raise ValueError("请填写 OpenAI API Key。")
 
             return excelPath, apiKey
+
+        def toggleApiKey(self):
+            """切换 API Key 显示状态"""
+            # 翻转显示状态并同步输入框
+            self.apiKeyVisible = not self.apiKeyVisible
+            self.apiKeyEntry.configure(show="" if self.apiKeyVisible else "*")
+            self.apiKeyToggleBtn.configure(text="隐藏" if self.apiKeyVisible else "显示")
 
         def saveConfig(self):
             """保存 AI 分析页配置"""

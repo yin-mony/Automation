@@ -53,3 +53,15 @@ debug*.log
 trec公司+个人合作推广/run_config.json
 trec公司+个人合作推广/run_config.local.json
 trec公司+个人合作推广/file/
+
+# 本地配置与运行产物
+1688商品链接数据采集/run_config.json
+Case状态抓取/*.log
+Case状态抓取/test.py
+course61_native1260*.png
+t2r_chrome_test_profile/
+t2r_real_iap_*/
+trec推广发送/output/
+BOSS直聘-筛选简历/6.0.0
+赛狐ERP/onlyrun_config.json
+FBA货件差异自动索赔/run_config.json

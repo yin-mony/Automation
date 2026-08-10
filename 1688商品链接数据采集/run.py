@@ -14,6 +14,7 @@ from DrissionPage import ChromiumPage
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -22,6 +23,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -32,7 +34,15 @@ from PyQt5.QtWidgets import (
 
 from main import Ali1688
 
-CURRENT_DIR = Path(__file__).resolve().parent
+
+def get_app_base_dir():
+    """脚本目录；PyInstaller 单文件打包时取 exe 所在目录。"""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+CURRENT_DIR = get_app_base_dir()
 CONFIG_FILE = CURRENT_DIR / 'run_config.json'  # 持久化上次界面填写的路径
 PREVIEW_MAX_ROWS = 50                          # 预览表格每个 sheet 最多显示行数
 
@@ -187,8 +197,8 @@ class RunWindow(QWidget):
         self.worker = None
         self.saved_config = self._load_config()
         self.setWindowTitle('1688 商品链接数据采集')
-        self.resize(520, 460)
-        self.setMinimumSize(460, 400)
+        self.resize(520, 560)
+        self.setMinimumSize(460, 500)
         self.setMaximumWidth(640)
         self._build_ui()
         self._load_defaults()
@@ -217,6 +227,37 @@ class RunWindow(QWidget):
         out_row.addWidget(self.output_path_input, 1)
         out_row.addWidget(browse_out_btn)
 
+        # 运行环境：线下 / 线上（与下载美国站子项目一致，目前仅作环境标记）
+        env_row = QHBoxLayout()
+        env_row.addWidget(QLabel('运行环境'))
+        self.env_offline = QRadioButton('线下')
+        self.env_online = QRadioButton('线上')
+        self.env_offline.setChecked(True)
+        env_group = QButtonGroup(self)
+        env_group.addButton(self.env_offline, 0)
+        env_group.addButton(self.env_online, 1)
+        env_row.addWidget(self.env_offline)
+        env_row.addWidget(self.env_online)
+        env_row.addStretch(1)
+
+        # 邮件通知
+        mail_row = QHBoxLayout()
+        mail_row.addWidget(QLabel('邮件通知'))
+        self.mail_no = QRadioButton('不发送')
+        self.mail_yes = QRadioButton('发送')
+        self.mail_no.setChecked(True)
+        mail_group = QButtonGroup(self)
+        mail_group.addButton(self.mail_no, 0)
+        mail_group.addButton(self.mail_yes, 1)
+        self.mail_no.toggled.connect(self._toggle_email_entry)
+        self.mail_yes.toggled.connect(self._toggle_email_entry)
+        mail_row.addWidget(self.mail_no)
+        mail_row.addWidget(self.mail_yes)
+        mail_row.addStretch(1)
+
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText('选择发送邮件时填写接收邮箱')
+
         self.btn_run = QPushButton('一键采集并导出')
         self.btn_preview = QPushButton('预览汇总')
         for btn in (self.btn_run, self.btn_preview):
@@ -242,13 +283,29 @@ class RunWindow(QWidget):
         layout.addLayout(excel_row)
         layout.addWidget(QLabel('输出目录'))
         layout.addLayout(out_row)
+        layout.addLayout(env_row)
+        layout.addLayout(mail_row)
+        layout.addWidget(QLabel('接收邮箱'))
+        layout.addWidget(self.email_input)
         layout.addLayout(btn_row)
         layout.addWidget(QLabel('运行日志'))
         layout.addWidget(self.log_box, 1)
+        self._toggle_email_entry()
+
+    def _toggle_email_entry(self):
+        """选择发送邮件时才启用邮箱输入框。"""
+        enabled = self.mail_yes.isChecked()
+        self.email_input.setEnabled(enabled)
 
     def _load_config(self):
-        """仅从 run_config.json 恢复上次界面路径；无文件时留空，由用户选择。"""
-        empty = {'file_path': '', 'path': ''}
+        """从 run_config.json 恢复上次界面配置。"""
+        empty = {
+            'file_path': '',
+            'path': '',
+            'isOnline': False,
+            'sendEmail': False,
+            'email': '',
+        }
         if not CONFIG_FILE.is_file():
             return empty
         try:
@@ -256,6 +313,9 @@ class RunWindow(QWidget):
             return {
                 'file_path': str(data.get('file_path', '') or '').strip(),
                 'path': str(data.get('path', '') or '').strip(),
+                'isOnline': bool(data.get('isOnline', False)),
+                'sendEmail': bool(data.get('sendEmail', False)),
+                'email': str(data.get('email', '') or '').strip(),
             }
         except (json.JSONDecodeError, OSError):
             return empty
@@ -275,12 +335,25 @@ class RunWindow(QWidget):
         """启动时把持久化配置填回输入框。"""
         self.file_path_input.setText(self.saved_config.get('file_path', ''))
         self.output_path_input.setText(self.saved_config.get('path', ''))
+        if self.saved_config.get('isOnline'):
+            self.env_online.setChecked(True)
+        else:
+            self.env_offline.setChecked(True)
+        if self.saved_config.get('sendEmail'):
+            self.mail_yes.setChecked(True)
+        else:
+            self.mail_no.setChecked(True)
+        self.email_input.setText(self.saved_config.get('email', ''))
+        self._toggle_email_entry()
 
     def _current_config(self):
-        """读取界面当前路径，组装为 main.Ali1688 所需的 config 字典。"""
+        """读取界面当前配置，组装为 main.Ali1688 所需的 config 字典。"""
         return {
             'file_path': self.file_path_input.text().strip(),
             'path': self.output_path_input.text().strip(),
+            'isOnline': self.env_online.isChecked(),
+            'sendEmail': self.mail_yes.isChecked(),
+            'email': self.email_input.text().strip(),
         }
 
     def _choose_excel(self):
@@ -316,6 +389,9 @@ class RunWindow(QWidget):
         if not out.is_dir():
             QMessageBox.warning(self, '路径无效', '输出目录不存在。')
             return None
+        if cfg.get('sendEmail') and not cfg.get('email'):
+            QMessageBox.warning(self, '参数错误', '选择发送邮件时必须填写接收邮箱。')
+            return None
         if need_excel:
             if not cfg['file_path']:
                 QMessageBox.warning(self, '参数错误', '请填写 Excel 路径 (file_path)。')
@@ -345,6 +421,10 @@ class RunWindow(QWidget):
         self.log_box.append('=== 一键采集并导出 ===')
         self.log_box.append(f"Excel: {cfg.get('file_path', '-')}")
         self.log_box.append(f"输出: {cfg['path']}")
+        self.log_box.append(f"运行环境: {'线上' if cfg.get('isOnline') else '线下'}")
+        self.log_box.append(f"邮件通知: {'发送' if cfg.get('sendEmail') else '不发送'}")
+        if cfg.get('sendEmail'):
+            self.log_box.append(f"接收邮箱: {cfg.get('email', '')}")
         self.log_box.append('-' * 60)
 
         self._set_buttons_enabled(False)
