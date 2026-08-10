@@ -1,234 +1,394 @@
 # -*- coding: utf-8 -*-
-"""
-主表与副表按订单号匹配，将 asin 回填到主表编码列。
-逻辑源自 Filter_add.py，由 Excel_file 类封装。
-"""
+"""主表与副表匹配回填的主逻辑文件。"""
 
 from pathlib import Path
+import sys
 
 import pandas as pd
 
-# 默认列名
-TOTAL_COL = "描述"
-FIND_COL = "myp_order_id"
-ASIN_COL = "asin"
-TARGET_COL = "编码（必填）"
-ALT_TARGET_COL = "编码(必填)"
 
+class ExcelFile:
+    """主表与副表按订单编号匹配，并将 ASIN 回填到主表编码列。"""
 
-class Excel_file:
-    """
-    用法：
-        excel = Excel_file(r"C:\data\主表.xlsx")
-        excel.run([r"C:\data\副表1.xlsx", r"C:\data\副表2.xlsx"])
-    """
+    def __init__(
+        self,
+        path=None,
+        totalCol="描述",
+        findCol="多年期定价订单编号",
+        asinCol="ASIN",
+        targetCol="编码（必填）",
+        altTargetCol="编码(必填)",
+        legacyFindCols=None,
+        legacyAsinCols=None,
+        separator=",",
+    ):
+        self.path = Path(path) if path else None
+        self.totalCol = totalCol
+        self.findCol = findCol
+        self.asinCol = asinCol
+        self.targetCol = targetCol
+        self.altTargetCol = altTargetCol
+        self.legacyFindCols = tuple(legacyFindCols or ("myp_order_id",))
+        self.legacyAsinCols = tuple(legacyAsinCols or ("asin",))
+        self.separator = separator
 
-    def __init__(self, path):
-        # path：主表 xlsx 路径（str 或 Path）
-        self.path = Path(path)
-        if not self.path.is_file():
-            raise FileNotFoundError(f"主表文件不存在：{self.path}")
-        self._df = None
+    def loadData(self, totalPath, subPath):
+        """读取主表和单个副表，并清理列名前后空格。"""
+        totalDf = pd.read_excel(totalPath)
+        subDf = pd.read_excel(subPath)
+        totalDf.columns = totalDf.columns.str.strip()
+        subDf.columns = subDf.columns.str.strip()
+        return totalDf, subDf
 
-    def load(self):
-        # 返回主表 DataFrame；结果会缓存
-        if self._df is None:
-            df = pd.read_excel(self.path)
-            df.columns = df.columns.str.strip()
-            if df.empty:
-                raise ValueError("主表为空，无法处理。")
-            self._df = df
-        return self._df
+    def validateColumns(self, totalDf, subDf, totalCol=None, findCol=None, asinCol=None):
+        """校验主表和副表列名，返回实际使用的副表匹配列与 ASIN 列。"""
+        totalCol = totalCol or self.totalCol
+        findCol = findCol or self.findCol
+        asinCol = asinCol or self.asinCol
 
-    def run(self, sub_paths, output_path=None):
-        # sub_paths：副表路径，可传单个路径或路径列表
-        # output_path：写回路径，留空则覆盖主表 self.path
-        # 返回：dict，含回填后的 total_df、匹配统计等
-        paths = self._to_sub_list(sub_paths)
-        if not paths:
-            raise ValueError("至少需要一个副表文件路径。")
+        if totalCol not in totalDf.columns:
+            raise KeyError(f"总表中不存在列: {totalCol}")
 
-        total_work = self.load().copy()
-        per_sub = []
-        sub_results = []
-        match_dfs = []
+        findAliases = self.legacyFindCols if findCol == self.findCol else ()
+        asinAliases = self.legacyAsinCols if asinCol == self.asinCol else ()
+        resolvedFindCol = self.resolveColumn(subDf, findCol, findAliases, "副表")
+        resolvedAsinCol = self.resolveColumn(subDf, asinCol, asinAliases, "副表")
+        return resolvedFindCol, resolvedAsinCol
 
-        for i, sub_path in enumerate(paths):
-            sub_df = pd.read_excel(sub_path)
-            sub_df.columns = sub_df.columns.str.strip()
-            self._check_cols(total_work, sub_df)
+    def resolveColumn(self, df, requestedCol, aliases, tableLabel):
+        """按首选列名和旧版别名寻找实际列名。"""
+        candidates = list(dict.fromkeys([requestedCol, *aliases]))
+        for col in candidates:
+            if col in df.columns:
+                return col
+        expected = " 或 ".join(f"'{col}'" for col in candidates)
+        raise KeyError(f"{tableLabel}中不存在列: {expected}")
 
-            matched = self._match_sub(total_work, sub_df)
-            total_work, target_col = self._fill_codes(
-                total_work,
-                matched["total_key"],
-                matched["asin_map"],
-                merge_existing=(i > 0),
-            )
-            per_sub.append({**matched, "sub_path": str(sub_path)})
-            sub_results.append(matched["sub_result"])
-            match_dfs.append(matched["match_df"])
+    def matchAndCollect(self, totalDf, subDf, totalCol=None, findCol=None, asinCol=None):
+        """完全匹配主表描述与副表订单编号，并聚合同一订单下的 ASIN。"""
+        totalCol = totalCol or self.totalCol
+        findCol = findCol or self.findCol
+        asinCol = asinCol or self.asinCol
+        findCol, asinCol = self.validateColumns(totalDf, subDf, totalCol, findCol, asinCol)
 
-        out = Path(output_path) if output_path else self.path
-        out.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            total_work.to_excel(out, index=False)
-        except PermissionError as exc:
-            raise PermissionError(f"无法写入文件：{out}。请关闭 Excel 后重试。") from exc
+        totalKey = totalDf[totalCol].astype("string").str.strip()
+        findKey = subDf[findCol].astype("string").str.strip()
 
-        if len(sub_results) > 1:
-            all_sub = pd.concat(sub_results, ignore_index=True)
-            all_match = pd.concat(match_dfs, ignore_index=True)
-        else:
-            all_sub = sub_results[0]
-            all_match = match_dfs[0]
+        subResult = subDf.copy()
+        subResult[findCol] = findKey
+        subResult[asinCol] = subResult[asinCol].astype("string").str.strip()
 
-        return {
-            "total_df_filled": total_work,
-            "target_col_used": target_col,
-            "sub_result": all_sub,
-            "match_df": all_match,
-            "saved_path": str(out),
-            "per_sub": per_sub,
-        }
+        totalKeySet = set(totalKey.dropna())
+        subResult["is_match"] = findKey.isin(totalKeySet)
 
-    def _to_sub_list(self, sub_paths):
-        # 把单个路径或列表统一成 Path 列表
-        if sub_paths is None:
-            return []
-        if isinstance(sub_paths, (list, tuple)):
-            items = sub_paths
-        else:
-            items = [sub_paths]
-        result = []
-        for p in items:
-            if not str(p).strip():
-                continue
-            path = Path(p)
-            if not path.is_file():
-                raise FileNotFoundError(f"副表文件不存在：{path}")
-            result.append(path)
-        return result
-
-    def _check_cols(self, total_df, sub_df):
-        # 校验主表、副表是否有所需列，缺列抛 KeyError
-        if TOTAL_COL not in total_df.columns:
-            raise KeyError(f"主表中不存在列：{TOTAL_COL}")
-        if FIND_COL not in sub_df.columns:
-            raise KeyError(f"副表中不存在列：{FIND_COL}")
-        if ASIN_COL not in sub_df.columns:
-            raise KeyError(f"副表中不存在列：{ASIN_COL}")
-
-    def _match_sub(self, total_df, sub_df):
-        # 主表描述 与 副表 myp_order_id 完全匹配，聚合 asin
-        total_key = total_df[TOTAL_COL].astype("string").str.strip()
-        find_key = sub_df[FIND_COL].astype("string").str.strip()
-
-        sub_result = sub_df.copy()
-        sub_result[FIND_COL] = find_key
-        sub_result[ASIN_COL] = sub_result[ASIN_COL].astype("string").str.strip()
-        sub_result["is_match"] = find_key.isin(set(total_key.dropna()))
-
-        match_df = sub_result.loc[sub_result["is_match"], [FIND_COL, ASIN_COL]].copy()
-        stat_df = (
-            match_df.groupby(FIND_COL, dropna=False)
+        matchDf = subResult.loc[subResult["is_match"], [findCol, asinCol]].copy()
+        statDf = (
+            matchDf.groupby(findCol, dropna=False)
             .size()
             .reset_index(name="匹配数量")
-            .assign(匹配状态="匹配成功")[[FIND_COL, "匹配状态", "匹配数量"]]
+            .assign(匹配状态="匹配成功")[[findCol, "匹配状态", "匹配数量"]]
         )
-        asin_map = (
-            match_df[match_df[ASIN_COL].notna() & (match_df[ASIN_COL] != "")]
-            .groupby(FIND_COL, dropna=False)[ASIN_COL]
-            .apply(self._join_asins)
+
+        asinMap = (
+            matchDf[matchDf[asinCol].notna() & (matchDf[asinCol] != "")]
+            .groupby(findCol, dropna=False)[asinCol]
+            .apply(self.dedupeJoinAsins)
             .to_dict()
         )
+
         return {
-            "total_key": total_key,
-            "sub_result": sub_result,
-            "match_df": match_df,
-            "stat_df": stat_df,
-            "asin_map": asin_map,
+            "total_key": totalKey,
+            "sub_result": subResult,
+            "match_df": matchDf,
+            "stat_df": statDf,
+            "asin_map": asinMap,
+            "find_col_used": findCol,
+            "asin_col_used": asinCol,
         }
 
-    def _fill_codes(self, total_df, total_key, asin_map, merge_existing=False):
-        # 将 asin_map 回填到主表编码列；merge_existing=True 时与已有编码合并去重
-        result_df = total_df.copy()
-        if TARGET_COL in result_df.columns:
-            col = TARGET_COL
-        elif ALT_TARGET_COL in result_df.columns:
-            col = ALT_TARGET_COL
+    def fillTargetColumn(self, totalDf, totalKey, asinMap, targetCol=None, mergeExisting=False):
+        """将聚合后的 ASIN 写入主表编码列，可选择与已有编码合并去重。"""
+        targetCol = targetCol or self.targetCol
+        resultDf = totalDf.copy()
+
+        if targetCol in resultDf.columns:
+            targetColUsed = targetCol
+        elif self.altTargetCol in resultDf.columns:
+            targetColUsed = self.altTargetCol
         else:
-            col = TARGET_COL
-            result_df[col] = pd.NA
+            targetColUsed = targetCol
+            resultDf[targetColUsed] = pd.NA
 
-        mapped = total_key.map(asin_map)
-        if not merge_existing:
-            result_df[col] = mapped
-            return result_df, col
+        mapped = totalKey.map(asinMap)
+        if not mergeExisting:
+            resultDf[targetColUsed] = mapped
+            return resultDf, targetColUsed
 
-        for idx in result_df.index:
-            new_v = mapped.loc[idx]
-            if pd.isna(new_v) or (isinstance(new_v, str) and not str(new_v).strip()):
+        for idx in resultDf.index:
+            newValue = mapped.loc[idx]
+            if pd.isna(newValue) or (isinstance(newValue, str) and not newValue.strip()):
                 continue
-            old_v = result_df.at[idx, col]
-            if pd.isna(old_v) or (isinstance(old_v, str) and not str(old_v).strip()):
-                result_df.at[idx, col] = new_v
+
+            oldValue = resultDf.at[idx, targetColUsed]
+            if pd.isna(oldValue) or (isinstance(oldValue, str) and not oldValue.strip()):
+                resultDf.at[idx, targetColUsed] = newValue
             else:
-                result_df.at[idx, col] = self._merge_codes(old_v, new_v)
-        return result_df, col
+                resultDf.at[idx, targetColUsed] = self.mergeCodeStrings(oldValue, newValue)
+        return resultDf, targetColUsed
 
-    def _join_asins(self, values, sep=","):
-        # 同一订单下多个 asin 去重后用逗号拼接
+    def printMatchSummary(self, matchResult, totalDfFilled, targetColUsed):
+        """打印单个副表的匹配统计和主表回填预览。"""
+        subResult = matchResult["sub_result"]
+        matchDf = matchResult["match_df"]
+        statDf = matchResult["stat_df"]
+        findCol = matchResult["find_col_used"]
+        asinCol = matchResult["asin_col_used"]
+
+        print(f"总匹配行数: {len(subResult)}")
+        print(f"匹配成功: {int(subResult['is_match'].sum())}")
+        print(f"匹配失败: {int((~subResult['is_match']).sum())}")
+        print(subResult[[findCol, "is_match"]].head(10))
+
+        print(f"\n完全匹配结果（{findCol} + 匹配状态 + 匹配数量）：")
+        print(statDf if not statDf.empty else "无匹配成功数据")
+
+        print(f"\n完全匹配结果（{findCol} + 匹配数量 + {asinCol}值）：")
+        if matchDf.empty:
+            print("无匹配成功数据")
+        else:
+            grouped = matchDf.groupby(findCol, dropna=False)
+            for orderId, group in grouped:
+                print(f"{findCol}: {orderId} | 匹配数量: {len(group)}")
+                for asinValue in group[asinCol].tolist():
+                    print(f"{asinCol}: {asinValue}")
+
+        print("\n主表回填预览（描述 + 编码列）：")
+        print(totalDfFilled[[self.totalCol, targetColUsed]].head(10))
+
+    def normalizeSubPaths(self, subPath):
+        """将单个副表路径或路径列表统一成 Path 列表。"""
+        if subPath is None:
+            return []
+        if isinstance(subPath, (list, tuple)):
+            return [Path(item) for item in subPath if str(item).strip()]
+        return [Path(subPath)]
+
+    def run(
+        self,
+        totalPath=None,
+        subPath=None,
+        totalCol=None,
+        findCol=None,
+        asinCol=None,
+        targetCol=None,
+        printSummary=True,
+        saveResult=False,
+        outputPath=None,
+    ):
+        """执行读取、匹配、聚合、回填和可选写回的完整流程。"""
+        oldStyleRun = False
+        if self.path and subPath is None and totalPath is not None:
+            subPath = totalPath
+            totalPath = self.path
+            oldStyleRun = True
+        elif self.path and isinstance(totalPath, (list, tuple)) and subPath is not None:
+            outputPath = subPath
+            subPath = totalPath
+            totalPath = self.path
+            oldStyleRun = True
+
+        totalPath = Path(totalPath) if totalPath else self.path
+        if not totalPath:
+            raise ValueError("请提供主表文件路径。")
+        if oldStyleRun:
+            saveResult = True
+
+        totalCol = totalCol or self.totalCol
+        findCol = findCol or self.findCol
+        asinCol = asinCol or self.asinCol
+        targetCol = targetCol or self.targetCol
+
+        subPaths = self.normalizeSubPaths(subPath)
+        if not subPaths:
+            raise ValueError("至少需要一个副表文件路径。")
+
+        for currentPath in subPaths:
+            if not currentPath.exists():
+                raise FileNotFoundError(f"副表文件不存在: {currentPath}")
+
+        totalDf = pd.read_excel(totalPath)
+        totalDf.columns = totalDf.columns.str.strip()
+        totalWork = totalDf.copy()
+
+        perSubMatchResults = []
+        subResultFrames = []
+        matchDfs = []
+        statDfs = []
+
+        for index, currentPath in enumerate(subPaths):
+            subDf = pd.read_excel(currentPath)
+            subDf.columns = subDf.columns.str.strip()
+            resolvedFindCol, resolvedAsinCol = self.validateColumns(
+                totalWork,
+                subDf,
+                totalCol,
+                findCol,
+                asinCol,
+            )
+
+            matchResult = self.matchAndCollect(
+                totalWork,
+                subDf,
+                totalCol=totalCol,
+                findCol=resolvedFindCol,
+                asinCol=resolvedAsinCol,
+            )
+
+            totalWork, targetColUsed = self.fillTargetColumn(
+                totalWork,
+                matchResult["total_key"],
+                matchResult["asin_map"],
+                targetCol=targetCol,
+                mergeExisting=(index > 0),
+            )
+
+            entry = {
+                **matchResult,
+                "sub_path": str(currentPath),
+                "total_df_filled_step": totalWork.copy(),
+            }
+            perSubMatchResults.append(entry)
+
+            subResult = matchResult["sub_result"].copy()
+            subResult["副表文件"] = currentPath.name
+            subResultFrames.append(subResult)
+            matchDfs.append(matchResult["match_df"])
+            statDfs.append(matchResult["stat_df"])
+
+            if printSummary:
+                print(f"\n========== 副表 {index + 1}/{len(subPaths)}: {currentPath} ==========")
+                self.printMatchSummary(matchResult, totalWork, targetColUsed)
+
+        combinedSubResult = (
+            pd.concat(subResultFrames, ignore_index=True)
+            if len(subResultFrames) > 1
+            else subResultFrames[0]
+        )
+        combinedMatchDf = pd.concat(matchDfs, ignore_index=True) if len(matchDfs) > 1 else matchDfs[0]
+        combinedStatDf = pd.concat(statDfs, ignore_index=True) if len(statDfs) > 1 else statDfs[0]
+        lastMatchResult = perSubMatchResults[-1]
+
+        result = {
+            "total_key": lastMatchResult["total_key"],
+            "sub_result": combinedSubResult,
+            "match_df": combinedMatchDf,
+            "stat_df": combinedStatDf,
+            "asin_map": lastMatchResult["asin_map"],
+            "total_df_filled": totalWork,
+            "target_col_used": targetColUsed,
+            "sub_paths": [str(item) for item in subPaths],
+            "per_sub_match_results": perSubMatchResults,
+        }
+
+        if saveResult:
+            savePath = Path(outputPath) if outputPath else totalPath
+            savePath.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                result["total_df_filled"].to_excel(savePath, index=False)
+            except PermissionError as exc:
+                raise PermissionError(f"无法写入文件: {savePath}。请关闭该Excel文件后重试。") from exc
+            result["saved_path"] = str(savePath)
+            print(f"\n已写入主表文件: {savePath}")
+        return result
+
+    def runInteractive(self):
+        """通过命令行交互读取路径并执行回填流程。"""
+        totalInput = input("请输入主表路径（必填）: ").strip()
+        print("请输入副表路径（必填）。多个文件请逐行输入，输入空行结束：")
+        subLines = []
+        while True:
+            line = input().strip()
+            if not line:
+                break
+            subLines.append(line)
+
+        if not totalInput or not subLines:
+            raise ValueError("主表路径和至少一个副表路径都必须输入，不能留空。")
+
+        totalPath = Path(totalInput)
+        if not totalPath.exists():
+            raise FileNotFoundError(f"主表文件不存在: {totalPath}")
+
+        subPaths = []
+        for line in subLines:
+            currentPath = Path(line)
+            if not currentPath.exists():
+                raise FileNotFoundError(f"副表文件不存在: {currentPath}")
+            subPaths.append(currentPath)
+
+        outputInput = input("请输入输出主表路径（留空则覆盖原主表）: ").strip()
+        outputPath = Path(outputInput) if outputInput else None
+
+        return self.run(
+            totalPath=totalPath,
+            subPath=subPaths,
+            saveResult=True,
+            outputPath=outputPath,
+        )
+
+    def dedupeJoinAsins(self, values):
+        """同一匹配键下多条 ASIN 去重并按首次出现顺序拼接。"""
         ordered = []
-        for v in values:
-            if pd.isna(v):
+        for value in values:
+            if pd.isna(value):
                 continue
-            t = str(v).strip()
-            if t and t.lower() != "nan":
-                ordered.append(t)
-        return sep.join(list(dict.fromkeys(ordered)))
+            text = str(value).strip()
+            if not text or text.lower() == "nan":
+                continue
+            ordered.append(text)
+        return self.separator.join(list(dict.fromkeys(ordered)))
 
-    def _merge_codes(self, existing, new_str, sep=","):
-        # 多副表依次回填时，合并编码列且不去重已有片段
-        if pd.isna(new_str):
-            return existing
-        new_s = str(new_str).strip()
-        if not new_s or new_s.lower() == "nan":
+    def mergeCodeStrings(self, existing, newValue):
+        """多副表回填时合并编码字符串，并避免重复追加。"""
+        if pd.isna(newValue):
             return existing
 
-        def parts(v):
-            if pd.isna(v):
-                return []
-            return [p.strip() for p in str(v).split(sep) if p.strip()]
+        newText = str(newValue).strip()
+        if not newText or newText.lower() == "nan":
+            return existing
 
-        old_parts = parts(existing)
-        seen = set(old_parts)
-        merged = old_parts + [p for p in parts(new_s) if p not in seen]
-        return sep.join(merged)
+        oldParts = self.splitCodes(existing)
+        seen = set(oldParts)
+        merged = oldParts + [part for part in self.splitCodes(newText) if part not in seen]
+        return self.separator.join(merged)
+
+    def splitCodes(self, value):
+        """按英文逗号拆分编码字符串，并去除空片段。"""
+        if pd.isna(value):
+            return []
+        return [part.strip() for part in str(value).split(self.separator) if part.strip()]
 
 
 if __name__ == "__main__":
-    import sys
-
     config = {
-        "total_path": r"C:\RPA流程\根据未拆分完成的总表文件进行筛选并回填主表【编码】列\主表.xlsx",  # 主表
-        "sub_paths": [  # 副表（可多个，按顺序依次匹配回填）
+        "totalPath": r"C:\RPA流程\根据未拆分完成的总表文件进行筛选并回填主表【编码】列\主表.xlsx",
+        "subPaths": [
             r"C:\RPA流程\根据未拆分完成的总表文件进行筛选并回填主表【编码】列\副表.xlsx",
         ],
     }
 
     # 命令行可覆盖：python main.py <主表路径> <副表1> [副表2 ...]
     if len(sys.argv) >= 3:
-        config["total_path"] = sys.argv[1]
-        config["sub_paths"] = sys.argv[2:]
+        config["totalPath"] = sys.argv[1]
+        config["subPaths"] = sys.argv[2:]
 
-    if not config["total_path"].strip():
-        raise ValueError("请在 config 中填写 total_path（主表路径）。")
-    if not config["sub_paths"]:
-        raise ValueError("请在 config 中填写 sub_paths（至少一个副表路径）。")
+    if not config["totalPath"].strip():
+        raise ValueError("请在 config 中填写 totalPath（主表路径）。")
+    if not config["subPaths"]:
+        raise ValueError("请在 config 中填写 subPaths（至少一个副表路径）。")
 
-    excel = Excel_file(config["total_path"])
-    result = excel.run(config["sub_paths"])
-    sr = result["sub_result"]
-    print(f"匹配成功：{int(sr['is_match'].sum())}，失败：{int((~sr['is_match']).sum())}")
+    excel = ExcelFile(config["totalPath"])
+    result = excel.run(subPath=config["subPaths"], saveResult=True)
+    subResult = result["sub_result"]
+    print(f"匹配成功：{int(subResult['is_match'].sum())}，失败：{int((~subResult['is_match']).sum())}")
     print(f"已写入：{result['saved_path']}")
