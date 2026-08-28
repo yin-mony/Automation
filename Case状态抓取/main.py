@@ -514,16 +514,15 @@ class Automation():
 
 if __name__ == '__main__':
     config = {
-        "username": os.getenv("YIDEKE_USERNAME", ""),
-        "password": os.getenv("YIDEKE_PASSWORD", ""),
-        "ip": os.getenv("YIDEKE_SHOP_IP", ""),
-        "port": int(os.getenv("CASE_BROWSER_PORT", "9228")),
-        "file": os.getenv("CASE_FILE_PATH", r"C:\RPA流程\Case状态抓取\file\工作簿.xlsx"),
-        "StorePassword": os.getenv("AMAZON_STORE_PASSWORD", ""), # 店铺密码
+        "username": os.getenv("YIDEKE_USERNAME", "17581706456"),    # 易得客账户
+        "password": os.getenv("YIDEKE_PASSWORD", "bonisen123"),     # 易得客密码
+        "ip": os.getenv("YIDEKE_SHOP_IP", "52.89.245.223"),         # 目标店铺IP地址
+        "port": int(os.getenv("CASE_BROWSER_PORT", "9228")),        # 端口号
+        "file": os.getenv("CASE_FILE_PATH", r"C:\RPA流程\Case状态抓取\file\工作簿.xlsx"),    #输出目录
+        "StorePassword": os.getenv("AMAZON_STORE_PASSWORD", "Topseller88.."), # 店铺密码
         "country": "美国",  # 选择店铺国家
         "station": "",  # 选择站点，可以不填
-        # "mode":"更新"#【更新、抓取】
-        "mode":True
+        "mode":True     #模式选择：True为抓取模式（默认），False为更新模式
     }
     automation = Automation(config)
     automation.main()

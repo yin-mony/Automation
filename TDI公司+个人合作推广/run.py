@@ -1,50 +1,145 @@
-"""TREC 公司与个人合作推广 PySide6 桌面入口。"""
+"""TDI 公司与个人合作推广 PySide6 桌面入口。"""
 
 import json
+import os
 import sys
 import threading
 import traceback
+import ctypes
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QApplication,
-    QButtonGroup,
-    QCheckBox,
-    QComboBox,
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMainWindow,
-    QMessageBox,
-    QPlainTextEdit,
-    QProgressBar,
-    QPushButton,
-    QSizePolicy,
-    QSpinBox,
-    QStackedWidget,
-    QStyle,
-    QTableWidget,
-    QTableWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
 
-from main import Main
+def configureFrozenDllSearchPath():
+    if not getattr(sys, "frozen", False):
+        return
+    candidates = [
+        Path(str(getattr(sys, "_MEIPASS", ""))),
+        Path(sys.executable).resolve().parent / "_internal",
+    ]
+    for candidate in candidates:
+        if not candidate or not candidate.exists():
+            continue
+        try:
+            os.add_dll_directory(str(candidate))
+        except Exception:
+            pass
+        os.environ["PATH"] = f"{candidate}{os.pathsep}{os.environ.get('PATH', '')}"
+        for name in ("libcrypto-3-x64.dll", "libssl-3-x64.dll"):
+            dll = candidate / name
+            if dll.exists():
+                try:
+                    ctypes.WinDLL(str(dll))
+                except Exception:
+                    pass
+
+
+configureFrozenDllSearchPath()
+
+try:
+    from main import Main
+
+    from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, QUrl, Signal, Slot
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import (
+        QAbstractItemView,
+        QApplication,
+        QButtonGroup,
+        QCheckBox,
+        QComboBox,
+        QFrame,
+        QGridLayout,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QListWidget,
+        QListWidgetItem,
+        QMainWindow,
+        QMessageBox,
+        QPlainTextEdit,
+        QProgressBar,
+        QPushButton,
+        QSizePolicy,
+        QSpinBox,
+        QStackedWidget,
+        QStyle,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
+except Exception:
+    try:
+        baseDir = (
+            Path(sys.executable).resolve().parent
+            if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent
+        )
+        path = baseDir / "output" / "import_error.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(traceback.format_exc(), encoding="utf-8")
+    except Exception:
+        pass
+    raise
+
+
+def appBaseDir():
+    return (
+        Path(sys.executable).resolve().parent
+        if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parent
+    )
+
+
+def writeDiagnosticJson(baseDir, name, payload):
+    path = Path(baseDir) / "output" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def runQuotaDiagnostic():
+    baseDir = appBaseDir()
+    writeDiagnosticJson(baseDir, "quota_diagnostic.json", {"stage": "start"})
+    try:
+        model = Main({"baseDir": str(baseDir)})
+        writeDiagnosticJson(baseDir, "quota_diagnostic.json", {"stage": "main-created"})
+        import time
+
+        started = time.time()
+        status = model.status(refreshQuota=True)
+        writeDiagnosticJson(
+            baseDir,
+            "quota_diagnostic.json",
+            {
+                "stage": "complete",
+                "elapsed": round(time.time() - started, 2),
+                "quota": (status or {}).get("quota") or {},
+                "checks": [
+                    {
+                        "name": item.get("name", ""),
+                        "ok": bool(item.get("ok")),
+                        "detail": item.get("detail", ""),
+                    }
+                    for item in list((status or {}).get("checks") or [])
+                ],
+            },
+        )
+        return 0
+    except Exception:
+        writeDiagnosticJson(
+            baseDir,
+            "quota_diagnostic.json",
+            {"stage": "error", "traceback": traceback.format_exc()},
+        )
+        return 1
 
 
 class RunGui(QMainWindow):
     """提供任务配置、运行监控、环境状态和人工审核界面。"""
 
     class Worker(QObject):
-        """在独立线程执行完整流程、同步、刷新或推广预览。"""
+        """在独立线程执行完整流程、刷新或推广预览。"""
 
         log = Signal(str)
         progress = Signal(int, int, str)
@@ -53,12 +148,7 @@ class RunGui(QMainWindow):
         finished = Signal(str, dict)
         failed = Signal(str, str)
 
-        def __init__(
-            self,
-            baseDir,
-            operation,
-            config,
-        ):
+        def __init__(self, baseDir, operation, config):
             """保存线程操作、配置和协作控制事件。"""
             super().__init__()
             self.baseDir = baseDir
@@ -89,8 +179,6 @@ class RunGui(QMainWindow):
                 main = Main(runtime)
                 if self.operation == "run":
                     result = main.run()
-                elif self.operation == "sync":
-                    result = main.syncOnly(bool(runtime.get("fullTrecSync", False)))
                 elif self.operation == "refresh":
                     result = main.status(refreshQuota=True)
                 elif self.operation == "preview":
@@ -104,17 +192,14 @@ class RunGui(QMainWindow):
                 self.failed.emit(self.operation, traceback.format_exc())
 
         def pause(self):
-            """请求任务在下一安全点暂停。"""
             self.pauseEvent.set()
             self.state.emit("paused", "任务已暂停")
 
         def resume(self):
-            """解除暂停并继续运行。"""
             self.pauseEvent.clear()
             self.state.emit("running", "任务继续运行")
 
         def stop(self):
-            """请求任务在下一安全点停止。"""
             self.stopEvent.set()
             self.pauseEvent.clear()
             self.state.emit("stopping", "正在安全停止")
@@ -133,6 +218,7 @@ class RunGui(QMainWindow):
         self.metricValues = {}
         self.metricNotes = {}
         self.flowStates = {}
+        self.officialQuota = None
         self.todayUsed = 0
         self.pageNames = [
             "工作台",
@@ -144,22 +230,18 @@ class RunGui(QMainWindow):
             "连接状态",
             "操作说明",
         ]
-        self.setWindowTitle("TREC 公司与个人合作推广")
+        self.setWindowTitle("TDI 公司与个人合作推广")
         self.resize(1380, 860)
         self.setMinimumSize(1120, 720)
         self.buildUi()
         self.applyTheme()
         self.refreshLocal()
+        self.markQuotaRefreshing()
+        QTimer.singleShot(0, self.refreshRemote)
         self.refreshReview()
         self.refreshResults()
-        # 由窗口持有定时器，确保事件循环启动后一定执行官方额度同步。
-        self.quotaTimer = QTimer(self)
-        self.quotaTimer.setSingleShot(True)
-        self.quotaTimer.timeout.connect(self.refreshRemote)
-        self.quotaTimer.start(400)
 
     def styleIcon(self, icon):
-        """读取当前系统风格的标准图标。"""
         return self.style().standardIcon(icon)
 
     def buildUi(self):
@@ -176,7 +258,7 @@ class RunGui(QMainWindow):
         sideLayout = QVBoxLayout(sidebar)
         sideLayout.setContentsMargins(16, 22, 16, 18)
         sideLayout.setSpacing(12)
-        brand = QLabel("TREC\n推广工作台")
+        brand = QLabel("TDI\n推广工作台")
         brand.setObjectName("brand")
         sideLayout.addWidget(brand)
         edition = QLabel("SERPAPI FREE · 250 / MONTH")
@@ -204,7 +286,7 @@ class RunGui(QMainWindow):
         self.navigation.currentRowChanged.connect(self.switchPage)
         sideLayout.addWidget(self.navigation, 1)
 
-        safety = QLabel("普通网页：直接访问\nFacebook：仅保存链接")
+        safety = QLabel("普通网页：直连访问\nFacebook：仅保存链接")
         safety.setObjectName("safety")
         sideLayout.addWidget(safety)
         rootLayout.addWidget(sidebar)
@@ -228,7 +310,6 @@ class RunGui(QMainWindow):
         self.navigation.setCurrentRow(0)
 
     def buildHeader(self):
-        """构建页面标题、任务状态和主要运行命令。"""
         header = QFrame()
         header.setObjectName("header")
         layout = QHBoxLayout(header)
@@ -256,7 +337,6 @@ class RunGui(QMainWindow):
         return header
 
     def metricCard(self, key, title, tone):
-        """创建一个固定高度的运行指标卡。"""
         card = QFrame()
         card.setObjectName("metricCard")
         card.setProperty("tone", tone)
@@ -280,7 +360,6 @@ class RunGui(QMainWindow):
         return card
 
     def workflowStep(self, number, title):
-        """创建固定尺寸的流程阶段状态块。"""
         step = QFrame()
         step.setObjectName("workflowStep")
         step.setMinimumHeight(72)
@@ -305,7 +384,6 @@ class RunGui(QMainWindow):
         return step
 
     def buildOverview(self):
-        """构建额度、数据、审核和流程检查总览。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -316,7 +394,7 @@ class RunGui(QMainWindow):
         flowLayout = QHBoxLayout()
         flowLayout.setSpacing(10)
         for number, title in enumerate(
-            ("检查连接", "同步数据", "设置任务", "执行搜索", "审核结果"),
+            ("检查连接", "读取名单", "设置任务", "执行搜索", "审核结果"),
             start=1,
         ):
             flowLayout.addWidget(self.workflowStep(number, title), 1)
@@ -328,7 +406,7 @@ class RunGui(QMainWindow):
         cards = [
             self.metricCard("quota", "SerpApi 剩余额度", "green"),
             self.metricCard("today", "今日新搜索", "blue"),
-            self.metricCard("trec", "TREC 数据", "orange"),
+            self.metricCard("company", "公司结果", "orange"),
             self.metricCard("review", "待人工审核", "red"),
         ]
         for column, card in enumerate(cards):
@@ -344,10 +422,6 @@ class RunGui(QMainWindow):
         self.refreshButton.setIcon(self.styleIcon(QStyle.SP_BrowserReload))
         self.refreshButton.clicked.connect(self.refreshRemote)
         toolbar.addWidget(self.refreshButton)
-        self.syncButton = QPushButton("同步 TREC")
-        self.syncButton.setIcon(self.styleIcon(QStyle.SP_ArrowDown))
-        self.syncButton.clicked.connect(self.startSync)
-        toolbar.addWidget(self.syncButton)
         openButton = QPushButton("打开输出目录")
         openButton.setIcon(self.styleIcon(QStyle.SP_DirOpenIcon))
         openButton.clicked.connect(self.openOutput)
@@ -366,7 +440,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildTask(self):
-        """构建模式选择、采集范围和可调整搜索额度策略。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -394,10 +467,9 @@ class RunGui(QMainWindow):
         modeRow.addStretch()
         self.modeButtons[str(self.model.config.get("runMode") or "both")].setChecked(True)
         layout.addLayout(modeRow)
-
-        self.modeBand = QFrame()
-        self.modeBand.setObjectName("modeSummaryBand")
-        modeBandLayout = QGridLayout(self.modeBand)
+        modeBand = QFrame()
+        modeBand.setObjectName("modeSummaryBand")
+        modeBandLayout = QGridLayout(modeBand)
         modeBandLayout.setContentsMargins(16, 12, 16, 12)
         modeBandLayout.setHorizontalSpacing(24)
         self.modeSummary = {}
@@ -410,16 +482,21 @@ class RunGui(QMainWindow):
             modeBandLayout.addWidget(titleLabel, 0, column)
             modeBandLayout.addWidget(valueLabel, 1, column)
             self.modeSummary[key] = (titleLabel, valueLabel)
-        layout.addWidget(self.modeBand)
+        layout.addWidget(modeBand)
 
         optionsTitle = QLabel("本次运行")
         optionsTitle.setObjectName("sectionTitle")
         layout.addWidget(optionsTitle)
         optionRow = QHBoxLayout()
-        self.syncCheck = QCheckBox("运行前增量同步 TREC")
-        self.syncCheck.setChecked(bool(self.model.config.get("syncTrecBeforeRun", True)))
-        optionRow.addWidget(self.syncCheck)
-        optionRow.addStretch()
+        batchLabel = QLabel("每类数量")
+        batchLabel.setObjectName("policyTitle")
+        optionRow.addWidget(batchLabel)
+        self.companyBatchInput = QSpinBox()
+        self.companyBatchInput.setRange(1, 5000)
+        self.companyBatchInput.setSuffix(" 家")
+        self.companyBatchInput.setValue(int(self.model.config.get("companyBatch", 5)))
+        self.companyBatchInput.setMinimumWidth(120)
+        optionRow.addWidget(self.companyBatchInput)
         dailyCapLabel = QLabel("每日新搜索上限")
         dailyCapLabel.setObjectName("policyTitle")
         optionRow.addWidget(dailyCapLabel)
@@ -430,6 +507,7 @@ class RunGui(QMainWindow):
         self.dailyCapInput.setMinimumWidth(130)
         self.dailyCapInput.valueChanged.connect(self.updateModeView)
         optionRow.addWidget(self.dailyCapInput)
+        optionRow.addStretch()
         self.runSaveButton = QPushButton("保存运行设置")
         self.runSaveButton.setIcon(self.styleIcon(QStyle.SP_DialogSaveButton))
         self.runSaveButton.clicked.connect(self.saveRunSettings)
@@ -458,10 +536,10 @@ class RunGui(QMainWindow):
         policyLayout.setContentsMargins(16, 14, 16, 14)
         policyLayout.setHorizontalSpacing(30)
         labels = [
-            ("公司目标", "10 / 天"),
-            ("个人目标", "10 / 天"),
+            ("公司目标", "5 / 天"),
+            ("个人目标", "5 / 天"),
             ("新搜索上限", "6 / 天"),
-            ("公司 / 个人", "3 + 3"),
+            ("额度分配", "公司 6"),
             ("月末预留", "20 次"),
         ]
         self.policyLabels = []
@@ -488,7 +566,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildMonitor(self):
-        """构建进度、暂停停止和滚动日志。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -529,7 +606,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildMail(self):
-        """构建阿里邮箱配置、单选模式和邮件动作台账。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -641,7 +717,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildReview(self):
-        """构建待审核联系方式列表和状态操作。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -710,12 +785,10 @@ class RunGui(QMainWindow):
         return page
 
     def buildHelp(self):
-        """构建与每个业务页面对应的操作说明表。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
-
         title = QLabel("页面操作说明")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
@@ -726,56 +799,15 @@ class RunGui(QMainWindow):
         order.setObjectName("helpOrder")
         order.setWordWrap(True)
         layout.addWidget(order)
-
         rows = [
-            (
-                "工作台",
-                "确认能否开始任务",
-                "查看官方额度、TREC 数据量和启动条件；需要时点击刷新状态或同步 TREC。",
-                "额度以 SerpApi 官方账号为准；必需检查未通过时不要直接运行。",
-            ),
-            (
-                "运行设置",
-                "选择本次处理范围",
-                "选择公司+个人、仅公司或仅个人，并确认目标、候选规则、额度和输出文件。",
-                "三种模式内容不同；每日新搜索上限可自行设置，合并模式会自动分配给公司和个人。",
-            ),
-            (
-                "任务监控",
-                "观察完整流程",
-                "运行后查看进度和日志；需要时暂停、继续或安全停止。",
-                "出现验证码时按提示人工处理；任务运行中不要强制关闭程序。",
-            ),
-            (
-                "邮件设置",
-                "创建服务器草稿或发信",
-                "确认账号、客户端安全密码、主题和正文；默认生成阿里邮箱草稿，真实发送需二次确认。",
-                "只有已通过且未重复处理的邮箱会进入本次操作；真实发送会立即联系外部收件人。",
-            ),
-            (
-                "结果审核",
-                "人工确认联系方式",
-                "按状态筛选，单选、多选或全选当前列表，再统一设为通过、拒绝或待审核。",
-                "全选只作用于当前筛选结果；只有通过的邮箱才能进入邮件处理。",
-            ),
-            (
-                "结果数据",
-                "查看和导出采集结果",
-                "切换公司或个人结果，检查邮箱、电话、Facebook 链接和审核状态。",
-                "Facebook 只保存公开主页链接，不登录、不打开页面，也不提取二级信息。",
-            ),
-            (
-                "连接状态",
-                "检查外部服务路径",
-                "确认 SerpApi、TREC、网页网络模式、DrissionPage 和阿里邮箱配置状态。",
-                "普通网页默认直接访问；Facebook 不打开页面。凭据不要提交或分享。",
-            ),
-            (
-                "操作说明",
-                "随时核对操作方法",
-                "按页面名称查找用途、操作步骤和注意事项。",
-                "本页只提供说明，不会启动搜索、修改审核状态或发送邮件。",
-            ),
+            ("工作台", "确认能否开始任务", "查看额度、结果数和启动条件；需要时点击刷新状态。", "额度以 SerpApi 官方账号为准；必需检查未通过时不要直接运行。"),
+            ("运行设置", "设置本次处理范围", "确认公司数量和每日新搜索上限；默认生成草稿。", "公司从 TDI 名单按代理机构类牌照过滤并去重。"),
+            ("任务监控", "观察完整流程", "运行后查看进度和日志；需要时暂停、继续或安全停止。", "出现验证码时按提示人工处理；任务运行中不要强制关闭程序。"),
+            ("邮件设置", "创建服务器草稿或发信", "确认账号、客户端安全密码、主题和正文；默认生成阿里邮箱草稿，真实发送需二次确认。", "只有已通过且未重复处理的邮箱会进入本次操作；真实发送会立即联系外部收件人。"),
+            ("结果审核", "人工确认联系方式", "按状态筛选，单选、多选或全选当前列表，再统一设为通过、拒绝或待审核。", "全选只作用于当前筛选结果；只有通过的邮箱才能进入邮件处理。"),
+            ("结果数据", "查看和导出采集结果", "检查邮箱、电话、来源链接和审核状态。", "Facebook 只保存公开主页链接，不登录、不打开页面。"),
+            ("连接状态", "检查外部服务路径", "确认 SerpApi、直连抓取和阿里邮箱配置状态。", "普通网页、SerpApi 和邮件服务均直连；凭据不要提交或分享。"),
+            ("操作说明", "随时核对操作方法", "按页面名称查找用途、操作步骤和注意事项。", "本页只提供说明，不会启动搜索、修改审核状态或发送邮件。"),
         ]
         self.helpTable = QTableWidget(len(rows), 4)
         self.helpTable.setHorizontalHeaderLabels(["页面", "主要用途", "怎么操作", "需要注意"])
@@ -797,7 +829,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildResults(self):
-        """构建已保存结果与 Facebook 链接浏览表。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -806,12 +837,6 @@ class RunGui(QMainWindow):
         title = QLabel("已保存结果")
         title.setObjectName("sectionTitle")
         toolbar.addWidget(title)
-        self.resultFilter = QComboBox()
-        self.resultFilter.addItem("全部类型", "all")
-        self.resultFilter.addItem("公司", "company")
-        self.resultFilter.addItem("个人", "person")
-        self.resultFilter.currentIndexChanged.connect(self.refreshResults)
-        toolbar.addWidget(self.resultFilter)
         self.resultCountLabel = QLabel("0 条记录")
         self.resultCountLabel.setObjectName("filterNote")
         toolbar.addWidget(self.resultCountLabel)
@@ -820,9 +845,6 @@ class RunGui(QMainWindow):
         refreshButton.setIcon(self.styleIcon(QStyle.SP_BrowserReload))
         refreshButton.clicked.connect(self.refreshResults)
         toolbar.addWidget(refreshButton)
-        copyButton = QPushButton("复制 Facebook 链接")
-        copyButton.clicked.connect(self.copyFacebookLink)
-        toolbar.addWidget(copyButton)
         openButton = QPushButton("打开输出目录")
         openButton.setIcon(self.styleIcon(QStyle.SP_DirOpenIcon))
         openButton.clicked.connect(self.openOutput)
@@ -831,7 +853,7 @@ class RunGui(QMainWindow):
 
         self.resultTable = QTableWidget(0, 7)
         self.resultTable.setHorizontalHeaderLabels(
-            ["类型", "对象", "邮箱", "电话", "Facebook 链接", "采集状态", "更新时间"]
+            ["类型", "对象", "邮箱", "电话", "来源链接", "采集状态", "更新时间"]
         )
         self.resultTable.verticalHeader().setVisible(False)
         self.resultTable.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -848,7 +870,6 @@ class RunGui(QMainWindow):
         return page
 
     def buildEnvironment(self):
-        """构建各服务的网络路径和配置状态表。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -875,7 +896,6 @@ class RunGui(QMainWindow):
         return page
 
     def applyTheme(self):
-        """应用紧凑、清晰且适合重复操作的浅色主题。"""
         self.setStyleSheet(
             """
             QMainWindow, QWidget { background:#F4F6F5; color:#1D2926; font-family:'Microsoft YaHei UI'; font-size:13px; }
@@ -919,16 +939,11 @@ class RunGui(QMainWindow):
             #primaryButton:hover { background:#0B655E; }
             #dangerButton { color:#A62B23; border-color:#D8AAA5; }
             #dangerButton:hover { background:#FFF0EE; border-color:#C8756D; }
-            #modeButton { border-radius:0; min-height:38px; }
-            #modeButton:checked { background:#0F766E; color:#FFFFFF; border-color:#0F766E; }
             #mailModeButton { border-radius:0; min-height:38px; }
             #mailModeButton:checked { background:#285C50; color:#FFFFFF; border-color:#285C50; }
             QCheckBox { spacing:9px; min-height:28px; }
-            QCheckBox:focus { color:#0F6B59; }
             QComboBox, QSpinBox { min-height:34px; padding:0 10px; background:#FFFFFF; border:1px solid #C9D2CE; border-radius:5px; }
-            QComboBox:focus, QSpinBox:focus { border:2px solid #2E7D6F; }
             QLineEdit { min-height:34px; padding:0 10px; background:#FFFFFF; border:1px solid #C9D2CE; border-radius:5px; }
-            QLineEdit:focus { border:2px solid #2E7D6F; }
             QTableWidget { background:#FFFFFF; alternate-background-color:#F7F9F8; border:1px solid #DCE3E0; border-radius:5px; gridline-color:#E7ECEA; selection-background-color:#DDEFEA; selection-color:#1D2926; }
             QHeaderView::section { background:#EEF2F0; color:#43504C; border:0; border-bottom:1px solid #D5DDDA; padding:9px 8px; font-weight:600; }
             QTableWidget::item { padding:7px; }
@@ -948,13 +963,11 @@ class RunGui(QMainWindow):
         self.helpTable.setAlternatingRowColors(True)
 
     def switchPage(self, index):
-        """切换工作页面并更新标题。"""
         if index < 0:
             return
         self.stack.setCurrentIndex(index)
         self.pageTitle.setText(self.pageNames[index])
         if index == 7:
-            # 页面显示后列宽才稳定，此时重算行高可完整展示长说明。
             self.helpTable.resizeRowsToContents()
         details = [
             "流程状态、免费额度与启动条件",
@@ -962,62 +975,39 @@ class RunGui(QMainWindow):
             "实时进度、运行日志和安全控制",
             "阿里邮箱草稿、真实发送和去重台账",
             "公开联系方式人工确认",
-            "联系方式、Facebook 链接与导出状态",
-            "凭据、代理和外部服务连接状态",
+            "联系方式、来源链接与导出状态",
+            "凭据、直连抓取和外部服务连接状态",
             "每个页面的操作步骤与使用注意事项",
         ]
         self.pageDetail.setText(details[index])
 
     def selectedMode(self):
-        """返回当前分段模式按钮对应的运行值。"""
         for mode, button in self.modeButtons.items():
             if button.isChecked():
                 return mode
         return "both"
 
     def updateModeView(self):
-        """按公司、个人或合并模式刷新整页规则和额度内容。"""
         mode = self.selectedMode()
         dailyCap = self.dailyCapInput.value()
+        batch = self.companyBatchInput.value()
         companyCap = (dailyCap + 1) // 2
         personCap = dailyCap // 2
         views = {
-            "both": {
-                "name": "公司 + 个人",
-                "summary": [
-                    ("每日目标", "公司 10 + 个人 10"),
-                    ("候选规则", "挂靠公司 + 6 个月内到期个人"),
-                    ("搜索额度", f"公司 {companyCap} + 个人 {personCap}"),
-                    ("结果文件", "公司表 + 个人表"),
-                ],
-                "scope": [
-                    ("TREC", "公司去重与个人到期筛选", "公司和个人候选"),
-                    ("Google 与普通网站", "两类对象交替搜索", "邮箱、电话、来源链接"),
-                    ("Facebook", "仅识别链接，不登录、不访问", "公司和个人主页链接"),
-                ],
-                "policy": [
-                    ("公司目标", "10 / 天"),
-                    ("个人目标", "10 / 天"),
-                    ("新搜索上限", f"{dailyCap} / 天"),
-                    ("额度分配", f"公司 {companyCap} + 个人 {personCap}"),
-                    ("月末预留", "20 次"),
-                ],
-            },
             "company": {
-                "name": "仅公司",
                 "summary": [
-                    ("每日目标", "公司 10"),
-                    ("候选规则", "Active 经纪人按挂靠许可证汇总"),
+                    ("每日目标", f"公司 {batch}"),
+                    ("候选规则", "公司名去重（所有牌照类型）"),
                     ("搜索额度", f"公司最多 {dailyCap} 次"),
-                    ("结果文件", "公司联系信息表"),
+                    ("结果文件", "TDI 公司联系信息表"),
                 ],
                 "scope": [
-                    ("TREC", "按挂靠许可证和公司名称去重", "公司、经纪人数、地区"),
-                    ("Google 与普通网站", "公司名 + Texas 地区搜索", "公司邮箱、电话、来源链接"),
-                    ("Facebook", "仅识别公司主页链接", "公司 Facebook 链接"),
+                    ("TDI 名单", "公司名去重（所有牌照类型）", "公司、牌照类型、城市、州"),
+                    ("Google 与普通网站", "公司名 + 城市州搜索并核对", "公司邮箱、电话、来源链接"),
+                    ("Facebook", "仅识别主页链接", "公司 Facebook 链接"),
                 ],
                 "policy": [
-                    ("公司目标", "10 / 天"),
+                    ("公司目标", f"{batch} / 天"),
                     ("个人目标", "关闭"),
                     ("新搜索上限", f"{dailyCap} / 天"),
                     ("额度分配", f"公司 {dailyCap}"),
@@ -1025,30 +1015,47 @@ class RunGui(QMainWindow):
                 ],
             },
             "person": {
-                "name": "仅个人",
                 "summary": [
-                    ("每日目标", "个人 10"),
-                    ("候选规则", "Active、无挂靠、6 个月内到期"),
+                    ("每日目标", f"个人 {batch}"),
+                    ("候选规则", "Expiration date 为 2026"),
                     ("搜索额度", f"个人最多 {dailyCap} 次"),
-                    ("结果文件", "个人联系信息表"),
+                    ("结果文件", "TDI 个人联系信息表"),
                 ],
                 "scope": [
-                    ("TREC", "按详情 ID 或许可证号去重", "个人、到期日、地区"),
-                    ("Google 与普通网站", "姓名 + 房地产职业 + Texas", "个人邮箱、电话、来源链接"),
-                    ("Facebook", "仅识别个人主页链接", "个人 Facebook 链接"),
+                    ("证书名单", "Expiration date 2026 筛选 + NPN 去重", "姓名、牌照类型、城市、州、到期日"),
+                    ("Google 与普通网站", "人名 + insurance 搜索并核对", "个人邮箱、电话、来源链接"),
+                    ("Facebook", "仅识别主页链接", "个人 Facebook 链接"),
                 ],
                 "policy": [
                     ("公司目标", "关闭"),
-                    ("个人目标", "10 / 天"),
+                    ("个人目标", f"{batch} / 天"),
                     ("新搜索上限", f"{dailyCap} / 天"),
                     ("额度分配", f"个人 {dailyCap}"),
                     ("月末预留", "20 次"),
                 ],
             },
+            "both": {
+                "summary": [
+                    ("每日目标", f"公司 {batch} + 个人 {batch}"),
+                    ("候选规则", "公司去重 + 个人 2026 到期"),
+                    ("搜索额度", f"公司 {companyCap} + 个人 {personCap}"),
+                    ("结果文件", "公司表 + 个人表"),
+                ],
+                "scope": [
+                    ("TDI 名单", "公司名去重（所有牌照类型）", "公司候选"),
+                    ("证书名单", "Expiration date 2026 + NPN 去重", "个人候选"),
+                    ("Google 与普通网站", "两类对象交替搜索", "邮箱、电话、来源链接"),
+                ],
+                "policy": [
+                    ("公司目标", f"{batch} / 天"),
+                    ("个人目标", f"{batch} / 天"),
+                    ("新搜索上限", f"{dailyCap} / 天"),
+                    ("额度分配", f"公司 {companyCap} + 个人 {personCap}"),
+                    ("月末预留", "20 次"),
+                ],
+            },
         }
-        view = views.get(mode, views["both"])
-        if 3 in self.flowStates:
-            self.flowStates[3].setText(view["name"])
+        view = views.get(mode, views["company"])
         for key, pair in zip(("target", "rule", "quota", "output"), view["summary"]):
             self.modeSummary[key][0].setText(pair[0])
             self.modeSummary[key][1].setText(pair[1])
@@ -1062,7 +1069,6 @@ class RunGui(QMainWindow):
         self.updateDailyMetric()
 
     def updateDailyMetric(self):
-        """按当前模式和用户设置刷新工作台每日额度说明。"""
         if "today" not in self.metricValues:
             return
         dailyCap = self.dailyCapInput.value()
@@ -1079,15 +1085,17 @@ class RunGui(QMainWindow):
         self.metricNotes["today"].setText(note)
 
     def runRuntimeConfig(self):
-        """读取运行设置页当前允许修改的配置。"""
         return {
             "runMode": self.selectedMode(),
-            "syncTrecBeforeRun": self.syncCheck.isChecked(),
+            "companyBatch": self.companyBatchInput.value(),
+            "personBatch": self.companyBatchInput.value(),
             "dailySerpCap": self.dailyCapInput.value(),
+            "proxyRequired": False,
+            "useBrowser": False,
+            "useDirectFallback": True,
         }
 
     def saveRunSettings(self):
-        """把运行模式和每日新搜索上限保存到本地配置。"""
         values = self.runRuntimeConfig()
         path = self.baseDir / "config.local.json"
         try:
@@ -1097,26 +1105,21 @@ class RunGui(QMainWindow):
                 if not isinstance(current, dict):
                     current = {}
             current.update(values)
-            path.write_text(
-                json.dumps(current, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.model = Main({"baseDir": str(self.baseDir), **values})
         except Exception as error:
             QMessageBox.critical(self, "保存失败", str(error))
             return
-        self.updateState("ready", f"每日新搜索上限已保存为 {values['dailySerpCap']} 次")
+        self.updateState("ready", f"运行设置已保存（公司 {values['companyBatch']} 家，日上限 {values['dailySerpCap']} 次）")
         self.updateModeView()
 
     def selectedMailMode(self):
-        """返回邮件单选按钮对应的服务器动作。"""
         for mode, button in self.mailModeButtons.items():
             if button.isChecked():
                 return mode
         return "draft"
 
     def mailRuntimeConfig(self):
-        """读取邮件页当前账号、授权码、主题、正文和模式。"""
         return {
             "promotionMode": self.selectedMailMode(),
             "promotionSenderEmail": self.mailAccountInput.text().strip(),
@@ -1126,7 +1129,6 @@ class RunGui(QMainWindow):
         }
 
     def updateMailMode(self):
-        """按草稿或发送模式更新主命令和去重统计。"""
         sending = self.selectedMailMode() == "send"
         self.mailActionButton.setText("确认真实发送" if sending else "生成邮箱草稿")
         self.mailActionButton.setObjectName("dangerButton" if sending else "primaryButton")
@@ -1135,7 +1137,6 @@ class RunGui(QMainWindow):
         self.refreshMail()
 
     def saveMailSettings(self):
-        """把邮件页配置写入被 Git 忽略的本地配置文件。"""
         values = self.mailRuntimeConfig()
         path = self.baseDir / "config.local.json"
         try:
@@ -1145,10 +1146,7 @@ class RunGui(QMainWindow):
                 if not isinstance(current, dict):
                     current = {}
             current.update(values)
-            path.write_text(
-                json.dumps(current, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.model = Main({"baseDir": str(self.baseDir), **values})
         except Exception as error:
             QMessageBox.critical(self, "保存失败", str(error))
@@ -1157,7 +1155,6 @@ class RunGui(QMainWindow):
         self.populateEnvironment(self.model.status(refreshQuota=False))
 
     def refreshMail(self):
-        """刷新本次可处理邮箱和跨运行邮件台账统计。"""
         if not hasattr(self, "mailSummaryValues"):
             return
         try:
@@ -1182,7 +1179,6 @@ class RunGui(QMainWindow):
         )
 
     def startMail(self):
-        """按单选模式启动服务器草稿或真实发送任务。"""
         config = self.mailRuntimeConfig()
         try:
             main = Main({"baseDir": str(self.baseDir), **config})
@@ -1192,11 +1188,7 @@ class RunGui(QMainWindow):
             QMessageBox.critical(self, "邮件配置无效", str(error))
             return
         if not records:
-            QMessageBox.information(
-                self,
-                "没有待处理邮件",
-                f"没有新的审核通过邮箱；去重跳过 {skipped} 个。",
-            )
+            QMessageBox.information(self, "没有待处理邮件", f"没有新的审核通过邮箱；去重跳过 {skipped} 个。")
             self.refreshMail()
             return
         if self.selectedMailMode() == "send":
@@ -1213,14 +1205,9 @@ class RunGui(QMainWindow):
         self.startWorker("mail", config)
 
     def runtimeConfig(self):
-        """收集本次运行允许从 GUI 修改的非敏感选项。"""
-        return {
-            **self.runRuntimeConfig(),
-            **self.mailRuntimeConfig(),
-        }
+        return {**self.runRuntimeConfig(), **self.mailRuntimeConfig()}
 
     def populateChecks(self, checks):
-        """把预检结果写入总览表。"""
         self.checkTable.setRowCount(len(checks))
         for row, check in enumerate(checks):
             status = "通过" if check.get("ok") else "需处理"
@@ -1233,37 +1220,14 @@ class RunGui(QMainWindow):
         self.checkTable.resizeRowsToContents()
 
     def populateEnvironment(self, status):
-        """展示每个外部服务的固定网络路径。"""
-        proxy = status.get("proxy") or {}
         config = self.model.config
         rows = [
-            ("Texas Open Data", "直连", "本地数据 {:,} 条".format(int(status.get("trecCount") or 0))),
-            (
-                "SerpApi",
-                "直连",
-                "Key 已配置" if config.get("serpapiKey") else "Key 未配置",
-            ),
-            (
-                "普通二级页面",
-                (
-                    "DrissionPage → 本地 HTTP 桥 → SOCKS5"
-                    if proxy.get("required")
-                    else "DrissionPage 直接访问"
-                ),
-                str(proxy.get("label") or "待验证"),
-            ),
-            (
-                "Facebook 主页",
-                "不发起页面请求",
-                "仅记录搜索结果和普通网页发现的链接",
-            ),
-            (
-                "阿里邮箱",
-                "IMAP / SMTP SSL 直连",
-                "账号和授权码已配置"
-                if config.get("promotionSenderEmail") and config.get("promotionSmtpAuthCode")
-                else "账号或授权码未配置",
-            ),
+            ("TDI 公司名单", "本地 xlsx", f"公司结果 {int(status.get('companyResults') or 0):,} 条"),
+            ("证书名单", "本地 xlsx", f"个人结果 {int(status.get('personResults') or 0):,} 条"),
+            ("SerpApi", "直连", "Key 已配置" if config.get("serpapiKey") else "Key 未配置"),
+            ("普通二级页面", "直连 HTTP 抓取", "不启动代理桥，不读取 ipfiy.py"),
+            ("Facebook 主页", "不发起页面请求", "仅记录搜索结果和普通网页发现的链接"),
+            ("阿里邮箱", "IMAP / SMTP SSL 直连", "账号和授权码已配置" if config.get("promotionSenderEmail") and config.get("promotionSmtpAuthCode") else "账号或授权码未配置"),
             ("SQLite", "本地", str(status.get("database") or "")),
             ("初始化配置", "Main.__init__ 默认值", "已加载"),
         ]
@@ -1274,53 +1238,128 @@ class RunGui(QMainWindow):
         self.environmentTable.resizeRowsToContents()
 
     def applyStatus(self, status):
-        """更新指标、检查表和环境表。"""
+        status = self.mergeOfficialQuota(status)
+        self.rememberOfficialQuota(status)
         quota = status.get("quota") or {}
         remaining = int(quota.get("remaining") or 0)
         allowance = int(quota.get("allowance") or 250)
         today = int(quota.get("todayUsed") or 0)
-        self.metricValues["quota"].setText(f"{remaining} / {allowance}")
-        self.metricNotes["quota"].setText(
-            f"已用 {int(quota.get('used') or 0)} · 来源：{quota.get('source') or '本地预算'}"
-        )
+        source = str(quota.get("source") or "本地预算")
+        if source.startswith("本地预算（官方刷新失败）"):
+            self.metricValues["quota"].setText("官方失败")
+            note = "SerpApi 官方额度刷新失败"
+            if quota.get("remoteError"):
+                note += f"：{str(quota['remoteError'])[:80]}"
+            self.metricNotes["quota"].setText(note)
+        else:
+            self.metricValues["quota"].setText(f"{remaining} / {allowance}")
+            self.metricNotes["quota"].setText(f"已用 {int(quota.get('used') or 0)} · 来源：{source}")
         self.todayUsed = today
         self.updateDailyMetric()
-        self.metricValues["trec"].setText(f"{int(status.get('trecCount') or 0):,}")
-        self.metricNotes["trec"].setText(str(status.get("lastSync") or "尚未同步"))
+        self.metricValues["company"].setText(f"{int(status.get('companyResults') or 0):,}")
+        personCount = int(status.get("personResults") or 0)
+        self.metricNotes["company"].setText(
+            f"公司 {int(status.get('companyResults') or 0):,} · 个人 {personCount:,} · 已通过 {int(status.get('approvedResults') or 0)}"
+        )
         self.metricValues["review"].setText(str(int(status.get("reviewPending") or 0)))
         self.metricNotes["review"].setText("通过后才能生成推广记录")
         requiredChecks = [item for item in status.get("checks") or [] if item.get("level") == "required"]
         ready = all(item.get("ok") for item in requiredChecks)
         self.flowStates[1].setText("已通过" if ready else "需处理")
-        self.flowStates[2].setText(
-            f"{int(status.get('trecCount') or 0):,} 条" if status.get("trecCount") else "待同步"
-        )
+        self.flowStates[2].setText("已就绪" if self.model.data.xlsxPath.exists() else "缺少名单")
         modeNames = {"both": "公司 + 个人", "company": "仅公司", "person": "仅个人"}
-        self.flowStates[3].setText(modeNames.get(self.selectedMode(), "公司 + 个人"))
+        self.flowStates[3].setText(modeNames.get(self.selectedMode(), "仅公司"))
         if self.stateBadge.text() not in {"运行中", "已暂停", "停止中"}:
             self.flowStates[4].setText("待启动")
         self.flowStates[5].setText(f"待审核 {int(status.get('reviewPending') or 0)}")
         self.populateChecks(list(status.get("checks") or []))
         self.populateEnvironment(status)
 
+    def rememberOfficialQuota(self, status):
+        """缓存最近一次 SerpApi 官方额度，避免后续本地刷新覆盖首屏。"""
+        quota = (status or {}).get("quota") or {}
+        if str(quota.get("source") or "") == "SerpApi":
+            self.officialQuota = dict(quota)
+
+    def mergeOfficialQuota(self, status):
+        """本地状态刷新只更新业务数据，额度继续使用已获取的官方值。"""
+        status = dict(status or {})
+        quota = status.get("quota") or {}
+        if self.officialQuota and str(quota.get("source") or "").startswith("本地预算"):
+            status["quota"] = dict(self.officialQuota)
+            checks = []
+            for item in list(status.get("checks") or []):
+                value = dict(item)
+                if value.get("name") == "SerpApi 免费额度":
+                    value["detail"] = (
+                        f"剩余 {self.officialQuota['remaining']} / "
+                        f"{self.officialQuota['allowance']}，来源：{self.officialQuota['source']}"
+                    )
+                checks.append(value)
+            status["checks"] = checks
+        return status
+
+    def refreshOfficialStartup(self):
+        """首屏直接读取 SerpApi 官方额度，不展示本地预算作为最终值。"""
+        try:
+            self.model = Main({"baseDir": str(self.baseDir)})
+            status = self.model.status(refreshQuota=True)
+            self.applyStatus(status)
+            self.writeStartupDiagnostic(status)
+            self.appendLog("SerpApi 官方额度已读取。")
+        except Exception as error:
+            self.appendLog(f"SerpApi 官方额度读取失败：{error}")
+            self.refreshLocal()
+
+    def writeStartupDiagnostic(self, status):
+        """测试打包 exe 时可选写出首屏状态；普通用户运行不写。"""
+        if os.environ.get("TDI_WRITE_STARTUP_STATUS") != "1":
+            return
+        try:
+            path = self.baseDir / "output" / "startup_status.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "quota": (status or {}).get("quota") or {},
+                "checks": [
+                    {
+                        "name": item.get("name", ""),
+                        "ok": bool(item.get("ok")),
+                        "detail": item.get("detail", ""),
+                    }
+                    for item in list((status or {}).get("checks") or [])
+                ],
+            }
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as error:
+            self.appendLog(f"启动状态诊断写入失败：{error}")
+
     def refreshLocal(self):
-        """不访问网络，立即刷新本地状态。"""
         try:
             self.model = Main({"baseDir": str(self.baseDir)})
             self.applyStatus(self.model.status(refreshQuota=False))
         except Exception as error:
             self.appendLog(f"本地状态读取失败：{error}")
 
+    def markQuotaRefreshing(self):
+        """启动后官方额度未返回前，避免把本地预算显示成最终结果。"""
+        if "quota" in self.metricValues:
+            self.metricValues["quota"].setText("读取中")
+        if "quota" in self.metricNotes:
+            self.metricNotes["quota"].setText("正在获取 SerpApi 官方额度...")
+        if hasattr(self, "checkTable"):
+            for row in range(self.checkTable.rowCount()):
+                nameItem = self.checkTable.item(row, 0)
+                if nameItem and nameItem.text() == "SerpApi 免费额度":
+                    infoItem = self.checkTable.item(row, 2)
+                    if infoItem:
+                        infoItem.setText("正在获取 SerpApi 官方额度...")
+                    break
+        self.appendLog("正在获取 SerpApi 官方额度...")
+
     def refreshRemote(self):
-        """在线刷新 SerpApi 官方额度。"""
         self.startWorker("refresh", {})
 
-    def startSync(self):
-        """启动一次 TREC 增量同步。"""
-        self.startWorker("sync", {"fullTrecSync": False})
-
     def startRun(self):
-        """检查必需配置后启动完整流程。"""
         config = self.runtimeConfig()
         try:
             main = Main({"baseDir": str(self.baseDir), **config})
@@ -1328,9 +1367,7 @@ class RunGui(QMainWindow):
         except Exception as error:
             QMessageBox.critical(self, "无法启动", str(error))
             return
-        blockers = [
-            item for item in checks if item.get("level") == "required" and not item.get("ok")
-        ]
+        blockers = [item for item in checks if item.get("level") == "required" and not item.get("ok")]
         if blockers:
             detail = "\n".join(f"• {item['name']}：{item['detail']}" for item in blockers)
             QMessageBox.warning(self, "运行条件不完整", detail)
@@ -1340,12 +1377,10 @@ class RunGui(QMainWindow):
         self.startWorker("run", config)
 
     def previewPromotion(self):
-        """从审核页进入邮件草稿或真实发送设置。"""
         self.navigation.setCurrentRow(3)
         self.refreshMail()
 
     def startWorker(self, operation, config):
-        """创建唯一后台线程并连接全部信号。"""
         if self.thread and self.thread.isRunning():
             QMessageBox.information(self, "任务运行中", "请先等待当前任务结束或安全停止。")
             return
@@ -1365,19 +1400,15 @@ class RunGui(QMainWindow):
         self.setBusy(True, operation)
         self.thread.start()
 
-    def setBusy(self, busy, operation = ""):
-        """按后台任务状态启用或禁用命令。"""
+    def setBusy(self, busy, operation=""):
         self.headerStart.setEnabled(not busy)
         self.refreshButton.setEnabled(not busy)
-        self.syncButton.setEnabled(not busy)
         running = busy and operation == "run"
         self.pauseButton.setEnabled(running)
         self.stopButton.setEnabled(running)
-        self.syncCheck.setEnabled(not busy)
         self.dailyCapInput.setEnabled(not busy)
+        self.companyBatchInput.setEnabled(not busy)
         self.runSaveButton.setEnabled(not busy)
-        for button in self.modeButtons.values():
-            button.setEnabled(not busy)
         self.mailSaveButton.setEnabled(not busy)
         self.mailActionButton.setEnabled(not busy)
         for button in self.mailModeButtons.values():
@@ -1386,7 +1417,6 @@ class RunGui(QMainWindow):
             self.updateState("running", "正在执行" if operation != "refresh" else "正在刷新")
 
     def togglePause(self):
-        """切换后台任务暂停和继续状态。"""
         if not self.worker:
             return
         if self.worker.pauseEvent.is_set():
@@ -1399,7 +1429,6 @@ class RunGui(QMainWindow):
             self.pauseButton.setIcon(self.styleIcon(QStyle.SP_MediaPlay))
 
     def stopRun(self):
-        """确认后请求后台任务安全停止。"""
         if not self.worker:
             return
         answer = QMessageBox.question(
@@ -1414,7 +1443,6 @@ class RunGui(QMainWindow):
             self.stopButton.setEnabled(False)
 
     def handleHuman(self, reason, url):
-        """提示用户在可见浏览器完成验证后继续。"""
         message = reason
         if url:
             message += f"\n\n当前页面：{url}"
@@ -1430,13 +1458,11 @@ class RunGui(QMainWindow):
             self.pauseButton.setText("暂停")
 
     def appendLog(self, message):
-        """追加一条日志并保持光标在底部。"""
         self.logBox.appendPlainText(str(message))
         bar = self.logBox.verticalScrollBar()
         bar.setValue(bar.maximum())
 
     def updateProgress(self, current, total, message):
-        """更新任务进度条和当前步骤。"""
         self.progressLabel.setText(message)
         if total > 0:
             self.progressBar.setRange(0, 100)
@@ -1445,7 +1471,6 @@ class RunGui(QMainWindow):
             self.progressBar.setRange(0, 0)
 
     def updateState(self, state, message):
-        """把内部状态映射为可读状态徽标。"""
         labels = {
             "running": "运行中",
             "paused": "已暂停",
@@ -1459,50 +1484,29 @@ class RunGui(QMainWindow):
             self.flowStates[4].setText(labels.get(state, state or "待启动"))
 
     def workerFinished(self, operation, result):
-        """处理后台任务成功结果并刷新页面。"""
         if operation == "refresh":
             self.applyStatus(result)
+            self.writeStartupDiagnostic(result)
             self.appendLog("SerpApi 官方额度和环境状态已刷新。")
-        elif operation == "sync":
-            self.appendLog(
-                f"TREC 同步完成：本次 {int(result.get('fetched') or 0):,} 条，"
-                f"本地共 {int(result.get('total') or 0):,} 条。"
-            )
         elif operation == "preview":
-            self.appendLog(
-                f"推广预览已生成：{int(result.get('total') or 0)} 个审核通过邮箱。"
-            )
-            QMessageBox.information(
-                self,
-                "推广预览已生成",
-                f"记录数：{int(result.get('total') or 0)}\n文件：{result.get('recordFile') or ''}",
-            )
+            self.appendLog(f"推广预览已生成：{int(result.get('total') or 0)} 个审核通过邮箱。")
+            QMessageBox.information(self, "推广预览已生成", f"记录数：{int(result.get('total') or 0)}\n文件：{result.get('recordFile') or ''}")
         elif operation == "mail":
             if result.get("mode") == "draft":
-                message = (
-                    f"邮箱草稿已创建 {int(result.get('drafted') or 0)} 封，"
-                    f"重复跳过 {int(result.get('skipped') or 0)} 封。"
-                )
+                message = f"邮箱草稿已创建 {int(result.get('drafted') or 0)} 封，重复跳过 {int(result.get('skipped') or 0)} 封。"
                 title = "阿里邮箱草稿完成"
             else:
-                message = (
-                    f"真实发送成功 {int(result.get('sent') or 0)} 封，"
-                    f"重复跳过 {int(result.get('skipped') or 0)} 封。"
-                )
+                message = f"真实发送成功 {int(result.get('sent') or 0)} 封，重复跳过 {int(result.get('skipped') or 0)} 封。"
                 title = "真实发送完成"
             if result.get("failed"):
                 message += f" 失败 {int(result.get('failed') or 0)} 封。"
             self.appendLog(message)
             QMessageBox.information(self, title, message)
         else:
-            completed = result.get("completed") or {}
-            self.appendLog(
-                f"流程结束：公司 {completed.get('company', 0)}，个人 {completed.get('person', 0)}。"
-            )
+            self.appendLog(f"流程结束：公司完成 {int(result.get('completed') or 0)}，待审核 {int(result.get('reviewPending') or 0)}。")
         self.progressBar.setRange(0, 100)
-        self.progressBar.setValue(100 if operation in {"run", "sync"} else 0)
+        self.progressBar.setValue(100 if operation == "run" else 0)
         self.updateState("ready", "任务完成")
-        # 官方额度刷新已携带最新状态，不再用本地预算反向覆盖。
         if operation != "refresh":
             self.refreshLocal()
         self.refreshReview()
@@ -1510,14 +1514,12 @@ class RunGui(QMainWindow):
         self.refreshMail()
 
     def workerFailed(self, operation, details):
-        """展示后台错误并保留完整日志。"""
         self.appendLog(details)
         self.updateState("stopped", "任务失败")
         summary = details.strip().splitlines()[-1] if details.strip() else "未知错误"
         QMessageBox.critical(self, "任务失败", summary)
 
     def clearWorker(self):
-        """释放已经结束的线程和工作对象。"""
         self.setBusy(False)
         self.pauseButton.setText("暂停")
         self.pauseButton.setIcon(self.styleIcon(QStyle.SP_MediaPause))
@@ -1529,7 +1531,6 @@ class RunGui(QMainWindow):
         self.thread = None
 
     def refreshReview(self):
-        """按筛选状态重载人工审核表。"""
         if not hasattr(self, "reviewTable"):
             return
         status = str(self.reviewFilter.currentData() or "pending")
@@ -1561,14 +1562,12 @@ class RunGui(QMainWindow):
         self.updateReviewSelection()
 
     def toggleReviewSelection(self, state):
-        """全选或取消选择当前筛选列表。"""
         if state:
             self.reviewTable.selectAll()
         else:
             self.reviewTable.clearSelection()
 
     def updateReviewSelection(self):
-        """同步审核页选择数量和全选状态。"""
         selected = self.reviewTable.selectionModel().selectedRows()
         count = len(selected)
         total = self.reviewTable.rowCount()
@@ -1578,14 +1577,11 @@ class RunGui(QMainWindow):
         self.reviewSelectAll.blockSignals(False)
 
     def refreshResults(self):
-        """按公司或个人模式重载已保存采集结果。"""
         if not hasattr(self, "resultTable"):
             return
-        selected = str(self.resultFilter.currentData() or "all")
-        mode = None if selected == "all" else selected
         try:
             data = Main({"baseDir": str(self.baseDir)}).data
-            rows = data.contactResults(mode)
+            rows = data.contactResults()
         except Exception as error:
             self.appendLog(f"结果数据读取失败：{error}")
             return
@@ -1597,7 +1593,7 @@ class RunGui(QMainWindow):
                 item.get("objectName", ""),
                 "\n".join(item.get("emails") or []),
                 "\n".join(item.get("phones") or []),
-                "\n".join(item.get("facebookUrls") or []),
+                "\n".join(item.get("verifiedUrls") or item.get("sourceUrls") or []),
                 item.get("contactStatus", ""),
                 item.get("updatedAt", ""),
             ]
@@ -1605,28 +1601,12 @@ class RunGui(QMainWindow):
                 self.resultTable.setItem(row, column, QTableWidgetItem(str(value)))
         self.resultTable.resizeRowsToContents()
 
-    def copyFacebookLink(self):
-        """复制当前结果中保存的 Facebook 主页链接。"""
-        row = self.resultTable.currentRow()
-        item = self.resultTable.item(row, 4) if row >= 0 else None
-        value = str(item.text() if item else "").strip()
-        if not value:
-            QMessageBox.information(self, "没有可复制链接", "请选择包含 Facebook 链接的结果。")
-            return
-        QApplication.clipboard().setText(value)
-        self.updateState("ready", "Facebook 链接已复制")
-
     def setReview(self, status):
-        """批量更新当前选中的审核记录。"""
         rows = sorted({index.row() for index in self.reviewTable.selectionModel().selectedRows()})
         if not rows:
             QMessageBox.information(self, "请选择记录", "请先选择一条或多条联系方式记录。")
             return
-        itemIds = [
-            int(self.reviewTable.item(row, 0).text())
-            for row in rows
-            if self.reviewTable.item(row, 0)
-        ]
+        itemIds = [int(self.reviewTable.item(row, 0).text()) for row in rows if self.reviewTable.item(row, 0)]
         if not itemIds:
             return
         try:
@@ -1641,16 +1621,13 @@ class RunGui(QMainWindow):
         self.refreshLocal()
 
     def openOutput(self):
-        """使用系统文件管理器打开输出目录。"""
         self.model.outputDir.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.model.outputDir.resolve())))
 
     def openConfigDir(self):
-        """打开 config.local.json 所在项目目录。"""
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.baseDir.resolve())))
 
     def closeEvent(self, event):
-        """关闭窗口前请求正在运行的任务安全停止。"""
         if self.thread and self.thread.isRunning() and self.worker:
             answer = QMessageBox.question(
                 self,
@@ -1669,8 +1646,25 @@ class RunGui(QMainWindow):
 
 
 if __name__ == "__main__":
-    application = QApplication(sys.argv)
-    application.setApplicationName("TREC 公司与个人合作推广")
-    window = RunGui()
-    window.show()
-    raise SystemExit(application.exec())
+    try:
+        if "--diagnose-quota" in sys.argv:
+            raise SystemExit(runQuotaDiagnostic())
+        application = QApplication(sys.argv)
+        application.setApplicationName("TDI 公司与个人合作推广")
+        window = RunGui()
+        window.show()
+        raise SystemExit(application.exec())
+    except Exception:
+        if os.environ.get("TDI_WRITE_STARTUP_STATUS") == "1":
+            try:
+                baseDir = (
+                    Path(sys.executable).resolve().parent
+                    if getattr(sys, "frozen", False)
+                    else Path(__file__).resolve().parent
+                )
+                path = baseDir / "output" / "fatal_error.txt"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(traceback.format_exc(), encoding="utf-8")
+            except Exception:
+                pass
+        raise

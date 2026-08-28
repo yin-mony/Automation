@@ -1,266 +1,141 @@
-# 企业微信入职申请-审批通过-自动发送offer系统
+# 人事 Offer 制单工具
 
-这是一个基于企业微信API的自动化入职管理系统，实现入职申请提交、审批流程监听、审批通过后自动发送Offer的功能。
+这是一个最基本的企业微信自建应用。人事从企业微信工作台打开页面，上传候选人简历图片、PDF或Word文件；系统提取信息并显示复核表，人事二次确认后生成正式 Offer PDF、留存邮件草稿并真实发送。候选人无需加入企业。
 
-## 功能特性
+## 正确流程
 
-- ✅ 提交入职审批申请
-- ✅ 审批状态实时监听
-- ✅ 审批通过自动发送Offer
-- ✅ 审批驳回自动通知
-- ✅ 支持Markdown格式消息
-- ✅ 支持文件附件发送
-- ✅ 企业微信自动登录
-
-## 系统架构
-
-```
-├── config.example.py      # 配置模板（复制为 config.py，勿提交真实密钥）
-├── config.py              # 本地配置（.gitignore）
-├── wecom_api.py           # 企业微信API基础模块
-├── approval.py            # 审批申请模块
-├── offer_sender.py        # Offer发送模块
-├── approval_monitor.py    # 审批监听模块
-├── QiYeVxLogin.py         # 企业微信登录管理器
-├── main.py                # 主程序入口
-├── requirements.txt       # 依赖文件
-└── README.md             # 使用文档
+```text
+企业微信内部成员打开应用
+  -> 企业微信静默确认成员身份
+  -> 人事上传候选人简历
+  -> 本地提取文本或 OCR 识别图片
+  -> 自动填写候选人和岗位信息
+  -> 人事修改、补齐并最终确认
+  -> 点击“确认并发送 Offer”
+  -> 弹窗二次确认收件人、抄送人和不可撤回提示
+  -> 生成 Offer PDF 和本地 EML 草稿
+  -> 同步到腾讯企业邮箱 Drafts 草稿箱留档
+  -> 通过 SMTP 真实发送给候选人，并把负责人写入邮件 Cc 抄送
 ```
 
-## 安装步骤
+## 文件职责
 
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
+```text
+run.py              企业微信身份校验和三步制单流程入口
+resume.py           图片、PDF、Word简历读取与字段提取
+jobs.py             本地任务和识别结果存储
+offer.py            正式 Offer PDF 生成
+draft.py            EML生成与企业邮箱草稿箱同步
+settings.py         本地配置读取
+templates/index.html 上传、复核和完成共用的单页面
+static/style.css    人事操作界面样式
+static/vendor/tabler/ 本地 Tabler UI 组件样式、脚本与许可
+tests/              不发送真实邮件的流程测试
 ```
 
-### 2. 配置企业微信信息
+## 支持格式
 
-复制 `config.example.py` 为 `config.py`（`config.py` 已在 `.gitignore` 中，不会提交到 Git），填入您的企业微信配置信息：
+- 图片：PNG、JPG、JPEG、WEBP、BMP
+- PDF：文本PDF直接提取，扫描PDF逐页OCR
+- Word：DOCX正文和表格
+
+自动识别姓名、邮箱、手机号、学历、院校、专业、所在城市和求职意向。识别结果只是建议值，必须由人事复核。
+
+薪酬按试用期和转正分别填写基本工资、保密费和绩效，总薪酬自动合计。入职日期和报到起止时间均通过日期、时间选择控件填写。
+
+页面使用本地打包的 Tabler UI 1.4.0，不依赖外部 CDN，也不需要单独的 Vue 或 Node.js 前端服务。static/style.css 只负责公司品牌色、薪酬结构布局和企业微信手机端适配。
+
+试用期和转正薪酬均按“基本工资 + 保密费 + 绩效 = 总薪酬”显示，总薪酬由页面和后端自动合计，不能手动修改。真实发送采用二次确认弹窗；取消不会提交表单，确认后系统先留存草稿再通过 SMTP 发送。固定抄送人会写入邮件的 `Cc` 字段，页面只展示抄送人姓名，不展示邮箱；候选人点击“回复全部”时抄送人会收到回复。
+
+## 安装与启动
+
+```powershell
+cd F:\Automation\自动发送offer
+python -m pip install -r requirements.txt
+python run.py
+```
+
+本机调试打开：
+
+```text
+http://127.0.0.1:8700
+```
+
+本机地址仅用于调试。正式使用时需要把服务部署到 HTTPS 域名，并把企业微信自建应用主页配置为：
+
+```text
+https://www.bonison.net/offer/
+```
+
+服务器配置需要补充：
 
 ```python
-# 企业微信企业ID
-CORP_ID = "your_corp_id"
-
-# 自建应用Secret
-AGENT_SECRET = "your_agent_secret"
-
-# 自建应用AgentID
-AGENT_ID = 1000000
-
-# 审批模板ID（需要在企业微信管理后台创建）
-APPROVAL_TEMPLATE_ID = "your_template_id"
-
-# 回调URL（用于接收审批状态变化通知）
-CALLBACK_URL = "https://your-domain.com/callback"
-
-# 回调Token
-CALLBACK_TOKEN = "your_callback_token"
-
-# 回调EncodingAESKey
-CALLBACK_ENCODING_AES_KEY = "your_encoding_aes_key"
+PUBLIC_URL = "https://www.bonison.net/offer"
+FLASK_SECRET_KEY = "随机长字符串"
+CORP_ID = "企业ID"
+AGENT_ID = "自建应用AgentId"
+AGENT_SECRET = "自建应用Secret"
+OFFER_NOTIFY_USER_IDS = ["负责人企业微信UserID"]
+OFFER_CC_RECIPIENTS = [
+    {"name": "何倩怡", "email": "heqianyi@bonison.net"},
+    {"name": "宁致远", "email": "ningzhiyuan@bonison.net"},
+]
 ```
 
-### 3. 创建审批模板
+应用可见范围应只包含有权制作 Offer 的人事员工。原来的“API接收消息”回调不是本流程必需项，可以继续独立运行，但不参与 Offer 制单。
 
-在企业微信管理后台创建审批模板：
+## 邮箱草稿
 
-1. 登录企业微信管理后台
-2. 进入"应用管理" -> "自建应用"
-3. 选择您的应用，进入"审批接口"
-4. 创建审批模板，添加以下字段：
-   - 姓名（文本）
-   - 部门（文本）
-   - 职位（文本）
-   - 入职日期（日期）
-   - 联系电话（文本）
-   - 邮箱（文本）
-   - 学历（文本）
-   - 薪资（文本）
-   - 招聘负责人（成员）
-   - 备注（文本）
+腾讯企业邮箱配置：
 
-5. 记录模板ID，填入 `config.py` 的 `APPROVAL_TEMPLATE_ID`
-
-### 4. 配置回调（可选）
-
-如果需要使用回调方式监听审批状态：
-
-1. 在企业微信管理后台，进入自建应用的"设置API接收"
-2. 填入回调URL、Token和EncodingAESKey
-3. 开启"审批状态通知事件"
-
-## 使用方法
-
-### 1. 提交入职申请
-
-```bash
-python main.py --action submit \
-  --user-id "zhangsan" \
-  --name "张三" \
-  --department "技术部" \
-  --position "软件工程师" \
-  --entry-date "2024-07-01" \
-  --phone "13800138000" \
-  --email "zhangsan@example.com" \
-  --education "本科" \
-  --salary "15000" \
-  --recruiter "lisi" \
-  --notes "应届毕业生"
+```python
+SMTP_USERNAME = "wangxiao@bonison.net"
+SMTP_PASSWORD = "客户端专用密码"
+MAIL_FROM = "wangxiao@bonison.net"
+IMAP_HOST = "imap.exmail.qq.com"
+IMAP_PORT = 993
+IMAP_USE_SSL = True
+DRAFT_FOLDER = "Drafts"
 ```
 
-提交后会自动启动审批监听，审批通过后自动发送Offer。
+确认发送后，系统会通过 IMAP 把带 PDF 附件的邮件写入草稿箱，再通过 SMTP 真实发送。草稿箱同步失败时不会继续发送；无论同步是否成功，都会生成本地 `.eml` 作为兜底。
 
-### 2. 启动审批监听
+## 文件位置
 
-```bash
-python main.py --action monitor --interval 60
+- 简历和识别结果：`data/jobs/<任务编号>/`
+- Offer PDF和邮件草稿：`output/<任务编号>/`
+- 本地配置：`config.py`
+
+以上目录均已加入 `.gitignore`。候选人简历、识别文字、PDF、邮件草稿和邮箱密码不会提交到 Git。
+
+## 测试
+
+```powershell
+python -m unittest discover -s tests -v
 ```
 
-- `--interval`: 轮询间隔（秒），默认60秒
-
-### 3. 直接发送Offer（不经过审批）
-
-```bash
-python main.py --action send \
-  --user-id "zhangsan" \
-  --name "张三" \
-  --department "技术部" \
-  --position "软件工程师" \
-  --entry-date "2024-07-01" \
-  --salary "15000"
-```
-
-### 4. 确保企业微信登录
-
-```bash
-python main.py --action login --timeout 300
-```
-
-- `--timeout`: 登录超时时间（秒），默认300秒
-
-## API说明
-
-### WeComAPI
-
-企业微信API基础类，提供认证、消息发送等功能。
-
-**主要方法：**
-- `get_access_token()`: 获取access_token
-- `send_text_message(user_id, content)`: 发送文本消息
-- `send_markdown_message(user_id, content)`: 发送Markdown消息
-- `send_file_message(user_id, media_id)`: 发送文件消息
-- `upload_file(file_path)`: 上传文件获取media_id
-- `get_user_info(user_id)`: 获取用户信息
-- `get_department_list()`: 获取部门列表
-
-### ApprovalManager
-
-审批管理类，提供审批申请提交、查询等功能。
-
-**主要方法：**
-- `submit_onboarding_approval(applicant_user_id, onboarding_data)`: 提交入职审批申请
-- `get_approval_detail(sp_no)`: 获取审批详情
-- `get_approval_status(sp_no)`: 获取审批状态
-
-### OfferSender
-
-Offer发送类，提供Offer生成和发送功能。
-
-**主要方法：**
-- `generate_offer_content(onboarding_data)`: 生成Offer内容
-- `send_offer(user_id, onboarding_data, send_file)`: 发送Offer
-- `send_approval_notification(user_id, approval_status, onboarding_data)`: 发送审批状态通知
-
-### ApprovalMonitor
-
-审批监听类，提供审批状态监听功能。
-
-**主要方法：**
-- `add_approval_record(sp_no, onboarding_data, applicant_user_id)`: 添加审批记录
-- `start_monitoring(interval)`: 启动监听
-- `stop_monitoring()`: 停止监听
-- `get_monitoring_status()`: 获取监听状态
-
-## 审批状态说明
-
-- `1`: 审批中
-- `2`: 已通过
-- `3`: 已驳回
-- `4`: 已撤销
-
-## 日志
-
-日志文件位于 `./logs/app.log`，包含系统运行日志和错误信息。
+测试只使用模拟候选人数据，生成临时PDF和EML，不连接真实邮箱。
 
 ## 注意事项
 
-1. **企业微信配置**: 确保config.py中的企业微信配置信息正确
-2. **审批模板**: 必须先在企业微信管理后台创建审批模板
-3. **权限配置**: 确保自建应用有足够的权限（审批、消息发送等）
-4. **网络连接**: 确保服务器可以访问企业微信API（qyapi.weixin.qq.com）
-5. **Token有效期**: access_token有效期为7200秒，系统会自动刷新
-6. **回调配置**: 如果使用回调方式，需要配置公网可访问的回调URL
+- OCR可能识别错误，姓名、邮箱、岗位、薪资和入职日期必须人工复核。
+- 简历和Offer包含个人信息，应定期清理 `data/` 与 `output/`。
+- Offer中的劳动关系、薪酬、试用期和福利条款应由公司人事或法务最终确认。
+- 页面二次确认后会真实发送邮件，确认前必须核对收件邮箱和全部录用信息。
 
-## 常见问题
+## 宝塔 Linux 部署
 
-### 1. 获取access_token失败
+生产环境使用 Gunicorn，不使用 Flask 自带调试服务器：
 
-- 检查CORP_ID和AGENT_SECRET是否正确
-- 检查网络连接是否正常
-- 检查自建应用是否有权限
-
-### 2. 提交审批申请失败
-
-- 检查APPROVAL_TEMPLATE_ID是否正确
-- 检查审批模板是否存在
-- 检查申请人用户ID是否正确
-
-### 3. 发送消息失败
-
-- 检查AGENT_ID是否正确
-- 检查接收人用户ID是否正确
-- 检查应用是否有消息发送权限
-
-### 4. 审批监听不工作
-
-- 检查审批单号是否正确
-- 检查网络连接是否正常
-- 检查轮询间隔设置是否合理
-
-## 扩展开发
-
-### 添加数据库支持
-
-可以修改代码添加数据库支持，用于存储审批记录和历史数据：
-
-```python
-import sqlite3
-
-def save_approval_record(sp_no, onboarding_data, status):
-    conn = sqlite3.connect('approvals.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO approvals (sp_no, data, status, create_time)
-        VALUES (?, ?, ?, ?)
-    ''', (sp_no, json.dumps(onboarding_data), status, datetime.now()))
-    conn.commit()
-    conn.close()
+```bash
+gunicorn --workers 2 --bind 127.0.0.1:8700 --timeout 180 run:app
 ```
 
-### 自定义Offer模板
+Nginx 将 `/offer/` 反向代理到 `http://127.0.0.1:8700`。服务器需安装中文字体，并在 `config.py` 设置：
 
-修改 `offer_sender.py` 中的 `generate_offer_content` 方法，自定义Offer内容和格式。
-
-### 添加Web界面
-
-可以使用Flask或Django添加Web界面，方便用户提交入职申请和查看审批状态。
-
-## 许可证
-
-MIT License
-
-## 联系方式
-
-如有问题或建议，请联系开发团队。
+```python
+PORTAL_HOST = "127.0.0.1"
+PORTAL_PORT = 8700
+PUBLIC_URL = "https://www.bonison.net/offer"
+FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+```

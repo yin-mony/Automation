@@ -72,7 +72,7 @@ class Auto:
         # Amazon 登录信息
         self.amazonEmail = config.get("amazonEmail") or config.get("amazon_email") or ""
         self.amazonPassword = config.get("amazonPassword") or config.get("amazon_password") or ""
-        # 项目资源与固定库存所有权证明文件
+        # 项目资源与固定提交文件
         self.baseDir = Path(config.get("baseDir") or PopExport.getBaseDir())
         resourceDir = PopExport.getResourceDir()
         self.podAwd = resourceDir / "AWD_POD.pdf"
@@ -286,6 +286,41 @@ class Auto:
                 print(f"第 {attempt} 次进入库存-货件失败：{lastError}", flush=True)
                 time.sleep(2)
         raise Exception(f"重新进入库存-货件失败：{lastError}")
+
+    def uploadDocumentFile(self, detailPage, sectionText, filePath, fileLabel):
+        """在指定上传区域选择文件并点击上传文档"""
+        chooseBtn = detailPage.ele(
+            'x://div[contains(@class,"document-proof")]'
+            f'[.//div[contains(text(),"{sectionText}")]]'
+            '//kat-button[@label="选择文件"]',
+            timeout=10,
+        )
+        if not chooseBtn:
+            raise Exception(f"没有找到{sectionText}选择文件按钮框")
+        chooseBtn.click.to_upload(str(filePath))
+        print(f"{fileLabel}选择完成: {filePath.name}", flush=True)
+
+        uploadBtn = detailPage.ele(
+            'x://div[contains(@class,"document-proof")]'
+            f'[.//div[contains(text(),"{sectionText}")]]'
+            '//kat-button[@label="上传文档"]',
+            timeout=10,
+        )
+        if not uploadBtn:
+            raise Exception(f"没有找到{sectionText}上传文档按钮框")
+        uploadBtn.click()
+        print(f"{sectionText}文件已点击上传", flush=True)
+        for waitIndex in range(30):
+            time.sleep(1)
+            disabled = uploadBtn.attr("disabled")
+            ariaDisabled = uploadBtn.attr("aria-disabled")
+            loading = uploadBtn.attr("loading")
+            className = str(uploadBtn.attr("class") or "").lower()
+            if disabled is not None or ariaDisabled == "true" or loading == "true" or "disabled" in className:
+                print(f"{sectionText}上传按钮已不可点击，视为上传完成", flush=True)
+                break
+        else:
+            raise TimeoutError(f"{sectionText}上传后按钮未变为不可点击状态")
 
     def main(self):
         """在 Amazon 货件页面逐个处理货件并上传凭证"""
@@ -635,7 +670,9 @@ class Auto:
                     print(f"货件全部差值为0，已跳过上传：{shipmentId}", flush=True)
                     continue
 
-                # 查找当前货件对应的 POP PDF，交货证明必须上传当前货件编号的 POP
+                isAwdShipment = sort == "亚马逊分销"
+
+                # 查找当前货件对应的 POP PDF，FBA 交货证明必须上传当前货件编号的 POP
                 popFile = popFileMap.get(shipmentId)
                 if not popFile and self.popDir and self.popDir.is_dir():
                     for pdfPath in sorted(self.popDir.iterdir()):
@@ -645,92 +682,44 @@ class Auto:
                             popFile = pdfPath
                             popFileMap[shipmentId] = pdfPath
                             break
-                if not popFile or not popFile.is_file():
+                if not isAwdShipment and (not popFile or not popFile.is_file()):
                     raise FileNotFoundError(f"未找到货件 {shipmentId} 对应的 POP PDF 文件")
-                if shipmentId not in popFile.stem.upper():
+                if popFile and shipmentId not in popFile.stem.upper():
                     raise ValueError(f"POP 文件与当前货件编号不匹配: {shipmentId} -> {popFile.name}")
 
-                # 根据货件创建来源选择库存所有权证明使用的内置 POD 文件
-                if sort == "亚马逊分销":
-                    podFile = self.podAwd
-                else:
-                    podFile = self.podFba
+                # 根据货件创建来源选择内置提交文件
+                podFile = self.podAwd if isAwdShipment else self.podFba
                 if not podFile.is_file():
-                    raise FileNotFoundError(f"库存所有权证明 POD 文件不存在: {podFile}")
+                    raise FileNotFoundError(f"内置提交文件不存在: {podFile}")
                 if "_POD" not in podFile.stem.upper():
-                    raise ValueError(f"库存所有权证明文件命名异常: {podFile.name}")
+                    raise ValueError(f"内置提交文件命名异常: {podFile.name}")
 
-                # 上传交货证明文件：当前货件编号对应的 POP PDF
-                proofChooseBtn = detailPage.ele(
-                    'x://div[contains(@class,"document-proof")]'
-                    '[.//div[contains(text(),"交货证明")]]'
-                    '//kat-button[@label="选择文件"]',
-                    timeout=10,
-                )
-                if not proofChooseBtn:
-                    raise Exception("没有找到交货证明选择文件按钮框")
-                proofChooseBtn.click.to_upload(str(popFile))
-                print(f"交货证明 POP 文件选择完成: {popFile.name}", flush=True)
-
-                proofUploadBtn = detailPage.ele(
-                    'x://div[contains(@class,"document-proof")]'
-                    '[.//div[contains(text(),"交货证明")]]'
-                    '//kat-button[@label="上传文档"]',
-                    timeout=10,
-                )
-                if not proofUploadBtn:
-                    raise Exception("没有找到交货证明上传文档按钮框")
-                proofUploadBtn.click()
-                print("交货证明文件已点击上传", flush=True)
-                for waitIndex in range(30):
-                    time.sleep(1)
-                    disabled = proofUploadBtn.attr("disabled")
-                    ariaDisabled = proofUploadBtn.attr("aria-disabled")
-                    loading = proofUploadBtn.attr("loading")
-                    className = str(proofUploadBtn.attr("class") or "").lower()
-                    if disabled is not None or ariaDisabled == "true" or loading == "true" or "disabled" in className:
-                        print("交货证明上传按钮已不可点击，视为上传完成", flush=True)
-                        break
+                if isAwdShipment:
+                    # AWD 原交货证明上传逻辑保留：此前会把当前货件 POP PDF 上传到“交货证明”。
+                    # proofChooseBtn = detailPage.ele(
+                    #     'x://div[contains(@class,"document-proof")]'
+                    #     '[.//div[contains(text(),"交货证明")]]'
+                    #     '//kat-button[@label="选择文件"]',
+                    #     timeout=10,
+                    # )
+                    # proofChooseBtn.click.to_upload(str(popFile))
+                    # proofUploadBtn = detailPage.ele(
+                    #     'x://div[contains(@class,"document-proof")]'
+                    #     '[.//div[contains(text(),"交货证明")]]'
+                    #     '//kat-button[@label="上传文档"]',
+                    #     timeout=10,
+                    # )
+                    # proofUploadBtn.click()
+                    self.uploadDocumentFile(detailPage, "发票", podFile, "发票文件")
+                    print(f"提交前文件校验通过：发票={podFile.name}", flush=True)
                 else:
-                    raise TimeoutError("交货证明上传后按钮未变为不可点击状态")
-
-                # 上传库存所有权证明文件：内置 POD 文件
-                ownershipChooseBtn = detailPage.ele(
-                    'x://div[contains(@class,"document-proof")]'
-                    '[.//div[contains(text(),"库存所有权证明")]]'
-                    '//kat-button[@label="选择文件"]',
-                    timeout=10,
-                )
-                if not ownershipChooseBtn:
-                    raise Exception("没有找到库存所有权证明选择文件按钮框")
-                ownershipChooseBtn.click.to_upload(str(podFile))
-                print(f"库存所有权证明 POD 文件选择完成: {podFile.name}", flush=True)
-
-                ownershipUploadBtn = detailPage.ele(
-                    'x://div[contains(@class,"document-proof")]'
-                    '[.//div[contains(text(),"库存所有权证明")]]'
-                    '//kat-button[@label="上传文档"]',
-                    timeout=10,
-                )
-                if not ownershipUploadBtn:
-                    raise Exception("没有找到库存所有权证明上传文档按钮框")
-                ownershipUploadBtn.click()
-                print("库存所有权证明文件已点击上传", flush=True)
-                for waitIndex in range(30):
-                    time.sleep(1)
-                    disabled = ownershipUploadBtn.attr("disabled")
-                    ariaDisabled = ownershipUploadBtn.attr("aria-disabled")
-                    loading = ownershipUploadBtn.attr("loading")
-                    className = str(ownershipUploadBtn.attr("class") or "").lower()
-                    if disabled is not None or ariaDisabled == "true" or loading == "true" or "disabled" in className:
-                        print("库存所有权证明上传按钮已不可点击，视为上传完成", flush=True)
-                        break
-                else:
-                    raise TimeoutError("库存所有权证明上传后按钮未变为不可点击状态")
-                print(
-                    f"提交前文件校验通过：交货证明={popFile.name}，库存所有权证明={podFile.name}",
-                    flush=True,
-                )
+                    # FBA 仍上传两个文件：交货证明 POP + 库存所有权证明 POD
+                    self.uploadDocumentFile(detailPage, "交货证明", popFile, "交货证明 POP 文件")
+                    self.uploadDocumentFile(detailPage, "库存所有权证明", podFile, "库存所有权证明 POD 文件")
+                    print(
+                        f"提交前文件校验通过：交货证明={popFile.name}，库存所有权证明={podFile.name}",
+                        flush=True,
+                    )
 
                 # 进入预览请求
                 detailPage.ele('x://kat-button[@label="预览您的请求"]', timeout=10).click()

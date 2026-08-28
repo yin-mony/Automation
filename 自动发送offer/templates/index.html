@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#176b45">
+  <title>Offer 制单</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/tabler/tabler.min.css', v='20260824-ui2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260824-ui2') }}">
+</head>
+<body>
+  {% set stageNumber = {'upload': 1, 'review': 2, 'done': 3}[stage] %}
+  <div class="page">
+    <header class="app-header">
+      <div class="container-xl">
+        <div class="header-row">
+          <div class="brand">
+            <span class="avatar brand-avatar">B</span>
+            <div>
+              <div class="brand-name">{{ companyName }}</div>
+              <div class="text-secondary small">人事工作台 · 企业微信内部应用</div>
+            </div>
+          </div>
+          <span class="badge bg-green-lt header-badge">Offer 制单</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-wrapper">
+      <div class="container-xl offer-container {{ 'offer-container-narrow' if stage != 'review' else '' }}">
+        <div class="page-heading">
+          <div>
+            <div class="page-pretitle">录用通知流程</div>
+            <h1 class="page-title">{{ '上传候选人简历' if stage == 'upload' else ('复核 Offer 信息' if stage == 'review' else '发送结果') }}</h1>
+            <p class="text-secondary page-description">
+              {{ '系统将识别简历中的公开基本信息，所有结果均需人事复核。' if stage == 'upload' else ('检查候选人、录用条件及发件信息，确认后直接发送。' if stage == 'review' else '查看 Offer 文件、邮件留档与发送结果。') }}
+            </p>
+          </div>
+          {% if stage == 'review' %}<span class="badge file-badge" title="{{ job.filename }}">{{ job.filename }}</span>{% endif %}
+        </div>
+
+        <nav class="workflow-steps" aria-label="制单进度">
+          {% for number, label in [(1, '上传简历'), (2, '核对信息'), (3, '确认发送')] %}
+          <div class="workflow-step {{ 'is-active' if stageNumber == number else ('is-complete' if stageNumber > number else '') }}">
+            <span class="step-number">{{ number }}</span>
+            <span>{{ label }}</span>
+          </div>
+          {% if number < 3 %}<span class="step-line" aria-hidden="true"></span>{% endif %}
+          {% endfor %}
+        </nav>
+
+        {% if error %}
+        <div class="alert alert-danger" role="alert">
+          <strong>无法继续：</strong>{{ error }}
+        </div>
+        {% endif %}
+
+        {% if stage == 'upload' %}
+        <form class="card upload-card" method="post" action="{{ url_for('extract') }}" enctype="multipart/form-data" id="uploadForm">
+          <div class="card-body">
+            <label class="upload-zone" for="resume">
+              <span class="upload-title">选择候选人简历</span>
+              <span class="text-secondary">支持 PNG、JPG、PDF、DOCX，单个文件不超过 {{ maxResumeMb }}MB</span>
+              <span class="btn btn-primary upload-button">选择文件</span>
+              <input id="resume" name="resume" type="file" accept=".png,.jpg,.jpeg,.webp,.bmp,.pdf,.docx" required>
+            </label>
+            <div class="selected-file" id="selectedFile">尚未选择文件</div>
+          </div>
+          <div class="card-footer upload-footer">
+            <span class="text-secondary small">简历仅用于本次录用信息制作</span>
+            <button class="btn btn-primary" type="submit" id="extractButton">识别并填写表单</button>
+          </div>
+        </form>
+
+        {% elif stage == 'review' %}
+        <form method="post" action="{{ url_for('generate', jobId=job.jobId) }}" class="review-form" id="reviewForm" novalidate>
+          <input type="hidden" name="csrfToken" value="{{ session.csrfToken }}">
+          <input type="hidden" name="sendNow" id="sendNow" value="">
+          <section class="card form-card">
+            <div class="card-header">
+              <div>
+                <span class="section-number">01</span>
+                <h2 class="card-title">候选人信息</h2>
+              </div>
+              <span class="text-secondary small">来源于简历识别，请逐项核对</span>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label required" for="name">姓名</label>
+                  <input class="form-control" id="name" name="name" value="{{ values.name }}" required>
+                  <div class="invalid-feedback">请填写候选人姓名。</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="email">接收邮箱</label>
+                  <input class="form-control" id="email" name="email" type="email" value="{{ values.email }}" placeholder="name@example.com" required>
+                  <div class="invalid-feedback">请填写有效的接收邮箱。</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="phone">手机号</label>
+                  <input class="form-control" id="phone" name="phone" inputmode="tel" value="{{ values.phone }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="education">最高学历</label>
+                  <input class="form-control" id="education" name="education" value="{{ values.education }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="school">毕业院校</label>
+                  <input class="form-control" id="school" name="school" value="{{ values.school }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="major">专业</label>
+                  <input class="form-control" id="major" name="major" value="{{ values.major }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="city">所在城市</label>
+                  <input class="form-control" id="city" name="city" value="{{ values.city }}">
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card form-card">
+            <div class="card-header">
+              <div>
+                <span class="section-number">02</span>
+                <h2 class="card-title">录用条件</h2>
+              </div>
+              <span class="text-secondary small">发送前最终确认</span>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label required" for="position">录用岗位</label>
+                  <input class="form-control" id="position" name="position" value="{{ values.position }}" required>
+                  <div class="invalid-feedback">请填写录用岗位。</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="department">入职部门</label>
+                  <select class="form-select" id="department" name="department" required>
+                    <option value="">请选择部门</option>
+                    {% for department in departments %}
+                    <option value="{{ department }}" {{ 'selected' if values.department == department else '' }}>{{ department }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="form-hint" id="departmentHint">填写直属上级后将自动匹配，仍可手动调整。</div>
+                  <div class="invalid-feedback">请填写入职部门。</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="reportPosition">直属上级</label>
+                  <input class="form-control" id="reportPosition" name="reportPosition" value="{{ values.reportPosition }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" for="salaryGrade">薪酬定级</label>
+                  <input class="form-control" id="salaryGrade" name="salaryGrade" value="{{ values.salaryGrade }}">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label" for="probationMonths">试用期</label>
+                  <div class="input-group">
+                    <input class="form-control" id="probationMonths" name="probationMonths" type="number" min="0" max="12" value="{{ values.probationMonths }}">
+                    <span class="input-group-text">个月</span>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="entryDate">入职日期</label>
+                  <input class="form-control picker-input" id="entryDate" name="entryDate" type="date" value="{{ values.entryDate }}" required>
+                  <div class="invalid-feedback">请选择入职日期。</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="trialEndDate">试岗最后日期</label>
+                  <input class="form-control picker-input" id="trialEndDate" name="trialEndDate" type="date" value="{{ values.trialEndDate }}" required>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">试岗期结算说明</label>
+                  <div class="alert alert-info mb-0" role="note">
+                    试岗期间，如经公司评估未达到岗位要求，公司将终止试岗，并按100元/日结算试岗期间的劳动所得；如员工在试岗期间主动提出退出，则按50元/日结算试岗期间的劳动所得。
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">工资卡银行</label>
+                  <input name="salaryBank" type="hidden" value="中国建设银行">
+                  <div class="fixed-field" role="status">中国建设银行</div>
+                </div>
+              </div>
+
+              <div class="salary-section">
+                <div class="salary-heading">
+                  <div>
+                    <h3>薪酬结构</h3>
+                    <p>总薪酬必须等于基本工资、保密费和绩效之和。</p>
+                  </div>
+                  <span class="badge bg-secondary-lt">单位：元/月</span>
+                </div>
+                <div class="salary-panels">
+                  {% for prefix, title in [('probation', '试用期薪酬'), ('regular', '转正薪酬')] %}
+                  <fieldset class="salary-panel" data-salary-group>
+                    <legend>{{ title }}</legend>
+                    <div class="salary-formula">
+                      {% for suffix, label in [('Base', '基本工资'), ('Confidential', '保密费'), ('Performance', '绩效')] %}
+                      <div class="salary-part">
+                        <label class="form-label required" for="{{ prefix }}{{ suffix }}">{{ label }}</label>
+                        <input class="form-control" id="{{ prefix }}{{ suffix }}" name="{{ prefix }}{{ suffix }}" type="number" min="0" step="0.01" inputmode="decimal" value="{{ values[prefix ~ suffix] }}" required>
+                      </div>
+                      {% if not loop.last %}<span class="salary-operator" aria-hidden="true">+</span>{% endif %}
+                      {% endfor %}
+                      <span class="salary-operator salary-equals" aria-hidden="true">=</span>
+                      <div class="salary-total">
+                        <span class="form-label">总薪酬</span>
+                        <strong data-salary-total>0</strong>
+                      </div>
+                    </div>
+                  </fieldset>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card form-card">
+            <div class="card-header">
+              <div>
+                <span class="section-number">03</span>
+                <h2 class="card-title">报到与发件</h2>
+              </div>
+              <span class="text-secondary small">已带入人事默认信息</span>
+            </div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-12">
+                  <label class="form-label" for="reportLocation">报到地点</label>
+                  <input class="form-control" id="reportLocation" name="reportLocation" value="{{ values.reportLocation }}">
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label required" for="reportStartTime">报到时间</label>
+                  <div class="time-range">
+                    <label class="time-field" for="reportStartTime">
+                      <span>开始</span>
+                      <input class="form-control picker-input" id="reportStartTime" aria-label="报到开始时间" name="reportStartTime" type="time" value="{{ values.reportStartTime }}" required>
+                    </label>
+                    <span aria-hidden="true">-</span>
+                    <label class="time-field" for="reportEndTime">
+                      <span>结束</span>
+                      <input class="form-control picker-input" id="reportEndTime" aria-label="报到结束时间" name="reportEndTime" type="time" value="{{ values.reportEndTime }}" required>
+                    </label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label" for="responseDays">回复期限</label>
+                  <div class="input-group">
+                    <input class="form-control" id="responseDays" name="responseDays" type="number" min="1" max="30" value="{{ values.responseDays }}">
+                    <span class="input-group-text">天</span>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="hrName">人事联系人</label>
+                  <input class="form-control" id="hrName" name="hrName" value="{{ values.hrName }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label" for="hrPhone">联系电话</label>
+                  <input class="form-control" id="hrPhone" name="hrPhone" inputmode="tel" value="{{ values.hrPhone }}">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">邮件抄送（Cc）</label>
+                  <div class="fixed-field" id="ccNames" data-cc-names="{{ values.ccNames or '未设置抄送人' }}" role="status">{{ values.ccNames or '未设置抄送人' }}</div>
+                  <div class="form-hint">固定抄送人，候选人点击“回复全部”时抄送人会收到回复。</div>
+                </div>
+              </div>
+              <div class="draft-notice">
+                <strong>发送时自动生成并留档</strong>
+                <span>程序会生成 Offer PDF、本地 EML，并在企业邮箱草稿箱保留邮件副本。</span>
+              </div>
+            </div>
+          </section>
+
+          <footer class="actionbar">
+            <div class="action-note">
+              <strong>发送前请再次核对</strong>
+              <span>确认后邮件将真实发送给候选人</span>
+            </div>
+            <div class="action-buttons">
+              <a class="btn btn-outline-secondary" href="{{ url_for('offerHome') }}">重新上传</a>
+              <button class="btn btn-danger" type="button" id="sendButton" data-bs-toggle="modal" data-bs-target="#sendConfirmModal">确认并发送 Offer</button>
+            </div>
+          </footer>
+
+          <div class="modal modal-blur fade" id="sendConfirmModal" tabindex="-1" aria-labelledby="sendConfirmTitle" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h2 class="modal-title" id="sendConfirmTitle">确认真实发送 Offer？</h2>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                  <p>邮件将立即发送至：</p>
+                  <div class="recipient-box" id="sendRecipient">{{ values.email or '尚未填写接收邮箱' }}</div>
+                  <p class="mb-1">抄送：</p>
+                  <div class="recipient-box" id="sendCcRecipient">{{ values.ccNames or '未设置抄送人' }}</div>
+                  <p class="text-secondary mb-0">系统会同时生成 PDF 和邮件草稿并保留在企业邮箱草稿箱。邮件发送后无法撤回。</p>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消，继续修改</button>
+                  <button class="btn btn-danger" type="submit" id="confirmSendButton">确认并立即发送</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <details class="source-text">
+          <summary>查看简历识别原文</summary>
+          <pre>{{ job.extracted.sourceText }}</pre>
+        </details>
+
+        {% else %}
+        <section class="card result-card">
+          <div class="card-body">
+            <div class="result-heading">
+              <span class="result-status">{{ '发送完成' if draft.sent else '发送未完成' }}</span>
+              <h2>{{ 'Offer 已发送' if draft.sent else '邮件未发送' }}</h2>
+              <p class="text-secondary">{{ '邮件、PDF 和草稿均已处理完成。' if draft.sent else 'PDF 和草稿已经生成，请查看下方失败原因。' }}</p>
+            </div>
+            <div class="list-group list-group-flush result-list">
+              <div class="list-group-item"><span>Offer PDF 附件</span><span class="badge bg-green-lt">已生成</span></div>
+              <div class="list-group-item"><span>本地邮件草稿</span><span class="badge bg-green-lt">已生成</span></div>
+              <div class="list-group-item"><span>企业邮箱草稿箱</span><span class="badge {{ 'bg-green-lt' if draft.serverSaved else 'bg-yellow-lt' }}">{{ '已保存' if draft.serverSaved else '未保存' }}</span></div>
+              <div class="list-group-item"><span>候选人邮箱</span><span class="badge {{ 'bg-green-lt' if draft.sent else 'bg-red-lt' }}">{{ '发送成功' if draft.sent else '发送失败' }}</span></div>
+              <div class="list-group-item"><span>邮件抄送（Cc）</span><span class="badge {{ 'bg-green-lt' if draft.ccEmails else 'bg-secondary-lt' }}">{{ draft.ccNames if draft.ccNames else ('已添加' if draft.ccEmails else '未设置') }}</span></div>
+              <div class="list-group-item"><span>企业微信负责人</span><span class="badge {{ 'bg-green-lt' if draft.wecomNotified else 'bg-yellow-lt' }}">{{ '已通知' if draft.wecomNotified else '未通知' }}</span></div>
+            </div>
+            {% if draft.serverError %}<div class="alert alert-warning mt-3">草稿箱同步失败：{{ draft.serverError }}。本地 EML 仍可使用。</div>{% endif %}
+            {% if draft.sendError %}<div class="alert alert-danger mt-3">邮件发送失败：{{ draft.sendError }}</div>{% endif %}
+            {% if draft.wecomError %}<div class="alert alert-warning mt-3">企业微信负责人通知：{{ draft.wecomError }}</div>{% endif %}
+            <div class="result-actions">
+              <a class="btn btn-primary" href="{{ url_for('download', jobId=job.jobId, kind='pdf') }}">下载 Offer PDF</a>
+              <a class="btn btn-outline-secondary" href="{{ url_for('download', jobId=job.jobId, kind='eml') }}">下载邮件草稿</a>
+              <a class="btn btn-link" href="{{ url_for('offerHome') }}">制作下一份</a>
+            </div>
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </main>
+  </div>
+
+  <div class="processing-overlay" id="processingOverlay" hidden aria-live="polite" aria-busy="true">
+    <div class="processing-panel">
+      <span class="spinner-border text-primary" aria-hidden="true"></span>
+      <strong id="processingTitle">正在处理</strong>
+      <span id="processingMessage">请稍候，不要关闭当前页面</span>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='vendor/tabler/tabler.min.js', v='20260824-ui2') }}" defer></script>
+  <script>
+    const processingOverlay = document.getElementById('processingOverlay');
+    const processingTitle = document.getElementById('processingTitle');
+    const processingMessage = document.getElementById('processingMessage');
+    const showProcessing = (title, message) => {
+      processingTitle.textContent = title;
+      processingMessage.textContent = message;
+      processingOverlay.hidden = false;
+    };
+    const resumeInput = document.getElementById('resume');
+    const selectedFile = document.getElementById('selectedFile');
+    const uploadForm = document.getElementById('uploadForm');
+    const extractButton = document.getElementById('extractButton');
+    if (resumeInput) {
+      resumeInput.addEventListener('change', () => {
+        selectedFile.textContent = resumeInput.files[0]?.name || '尚未选择文件';
+        selectedFile.classList.toggle('has-file', Boolean(resumeInput.files[0]));
+      });
+    }
+    if (uploadForm) {
+      uploadForm.addEventListener('submit', () => {
+        extractButton.disabled = true;
+        extractButton.textContent = '正在识别...';
+        showProcessing('正在识别候选人简历', '图片和扫描版 PDF 首次识别可能需要几十秒，请保持页面开启');
+      });
+    }
+
+    const reviewForm = document.getElementById('reviewForm');
+    const sendButton = document.getElementById('sendButton');
+    const confirmSendButton = document.getElementById('confirmSendButton');
+    const sendNowInput = document.getElementById('sendNow');
+    const emailInput = document.getElementById('email');
+    const ccNames = document.getElementById('ccNames');
+    const sendRecipient = document.getElementById('sendRecipient');
+    const sendCcRecipient = document.getElementById('sendCcRecipient');
+    const reportPositionInput = document.getElementById('reportPosition');
+    const departmentSelect = document.getElementById('department');
+    const supervisorDepartments = {{ supervisorDepartments | default({}) | tojson }};
+    if (sendButton) {
+      sendButton.addEventListener('click', (event) => {
+        reviewForm.classList.add('was-validated');
+        if (!reviewForm.checkValidity()) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          reviewForm.querySelector(':invalid')?.focus();
+          return;
+        }
+        sendRecipient.textContent = emailInput.value;
+        sendCcRecipient.textContent = ccNames?.dataset.ccNames || '未设置抄送人';
+      });
+    }
+    if (reviewForm) {
+      reviewForm.addEventListener('submit', (event) => {
+        reviewForm.classList.add('was-validated');
+        if (!reviewForm.checkValidity() || sendNowInput.value !== 'yes') {
+          event.preventDefault();
+          event.stopPropagation();
+          reviewForm.querySelector(':invalid')?.focus();
+          return;
+        }
+        confirmSendButton.textContent = '正在发送...';
+        showProcessing('正在生成并发送 Offer', '系统正在生成 PDF、保存邮件草稿并发送邮件，请勿重复操作');
+        window.setTimeout(() => {
+          confirmSendButton.disabled = true;
+        }, 0);
+      });
+    }
+    if (confirmSendButton) {
+      confirmSendButton.addEventListener('click', () => {
+        sendNowInput.value = 'yes';
+      });
+    }
+
+    document.querySelectorAll('[data-salary-group]').forEach((group) => {
+      const inputs = [...group.querySelectorAll('input')];
+      const outputValue = group.querySelector('[data-salary-total]');
+      const updateSalary = () => {
+        const sum = inputs.reduce((value, item) => value + (Number(item.value) || 0), 0);
+        outputValue.textContent = `${sum.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 元/月`;
+      };
+      inputs.forEach((item) => item.addEventListener('input', updateSalary));
+      updateSalary();
+    });
+
+    document.querySelectorAll('.picker-input').forEach((input) => {
+      input.addEventListener('click', () => input.showPicker?.());
+    });
+
+    const matchDepartment = () => {
+      const supervisor = reportPositionInput?.value.trim() || '';
+      if (!supervisor || !departmentSelect) return;
+      const mapped = supervisorDepartments[supervisor]
+        || Object.entries(supervisorDepartments).find(([name]) => supervisor.includes(name))?.[1];
+      const inferred = [...departmentSelect.options]
+        .map((option) => option.value)
+        .find((department) => department && supervisor.includes(department));
+      const department = mapped || inferred;
+      if (department && [...departmentSelect.options].some((option) => option.value === department)) {
+        departmentSelect.value = department;
+      }
+    };
+    reportPositionInput?.addEventListener('input', matchDepartment);
+    reportPositionInput?.addEventListener('change', matchDepartment);
+    reportPositionInput?.addEventListener('blur', matchDepartment);
+  </script>
+</body>
+</html>

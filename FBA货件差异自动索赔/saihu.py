@@ -24,7 +24,7 @@ class Saihu:
         self.page = config["page"]
         self.username = config["username"]
         self.password = config["password"]
-        # self.isOnline = bool(config.get("isOnline", False))
+        self.isOnline = bool(config.get("isOnline", False))
         self.baseDir = Path(config.get("baseDir") or PopExport.getBaseDir())
         # FBA 货件列表接口地址
         self.listApiUrl = "https://www.sellfox.com/api/inbound/shipmentCommodity/page.json"
@@ -681,7 +681,7 @@ if __name__ == "__main__":
         "password": os.getenv("SAIHU_PASSWORD", ""),
         "exportDir": str(defaultBaseDir / "file"),
         "baseDir": str(defaultBaseDir),
-        # "isOnline": False,
+        "isOnline": False,
         "siteName": "美国",
         "sendEmail": False,
         "email": "",

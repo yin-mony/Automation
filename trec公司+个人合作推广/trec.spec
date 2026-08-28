@@ -3,28 +3,30 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 
-# hiddenimports：补充 PyInstaller 静态分析不容易自动识别的动态依赖。
+# 生成目录版 EXE；大型 GUI 和浏览器依赖无需每次启动时临时解压。
 hiddenimports = [
     "main",
-    "email_util",
+    "data",
+    "serp",
+    "proxy",
+    "browser",
+    "mail",
+    "socks",
+    "pproxy",
     "openpyxl",
-    "openpyxl.cell._writer",
+    "lxml",
     "DrissionPage",
+    "PySide6",
 ]
-
-# DrissionPage：二级页面浏览器抓取依赖，打包时完整收集子模块。
 hiddenimports += collect_submodules("DrissionPage")
-
-# openpyxl：读取和导出 xlsx 依赖，打包时完整收集子模块。
 hiddenimports += collect_submodules("openpyxl")
-
+hiddenimports += collect_submodules("pproxy")
 
 a = Analysis(
     ["run.py"],
     pathex=[],
     binaries=[],
-    # datas：把当前子项目 file 目录作为内置数据资源打进 exe。
-    datas=[("file", "file")],
+    datas=[("file/time2renew-logo.png", "file")],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -39,10 +41,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
-    name="TREC公司个人合作推广",
+    exclude_binaries=True,
+    name="TREC推广工具",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -55,4 +56,14 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="TREC推广工具",
 )

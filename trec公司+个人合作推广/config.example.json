@@ -1,0 +1,23 @@
+{
+  "_说明": "可复制为 config.local.json 覆盖初始化默认值；该本地文件已加入 .gitignore。默认直接访问，只有将 proxyRequired 改为 true 时才读取代理。",
+  "serpapiKey": "",
+  "proxyRequired": false,
+  "proxyTestRetries": 3,
+  "proxyRetryDelay": 2,
+  "proxyUrl": "",
+  "proxyUsername": "",
+  "proxyPassword": "",
+  "sendEmail": false,
+  "reportSenderEmail": "",
+  "reportSmtpAuthCode": "",
+  "reportReceivers": "",
+  "promotionSenderEmail": "info@time2renew.com",
+  "promotionSmtpAuthCode": "",
+  "promotionMode": "draft",
+  "promotionImapServer": "imap.qiye.aliyun.com",
+  "promotionImapPort": 993,
+  "promotionSmtpServer": "smtp.qiye.aliyun.com",
+  "promotionSmtpPort": 465,
+  "promotionDraftMailbox": "Drafts",
+  "promotionLogoFile": "time2renew-logo.png"
+}
